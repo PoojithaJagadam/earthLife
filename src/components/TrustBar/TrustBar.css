@@ -1,0 +1,31 @@
+.trust-bar {
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: 0.85rem;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.trust-bar-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.trust-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.tagline {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+@media (max-width: 768px) {
+  .trust-bar-inner {
+    justify-content: center;
+  }
+}
