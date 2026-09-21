@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
 import EcwidStore from '../../ecwid/storefront/EcwidStore';
 import heroImg from '../../assets/hero_bg.png';
 import './Account.css';
 
 const Account = () => {
-  const location = useLocation();
   const [currentHash, setCurrentHash] = useState(window.location.hash || '#!/~/account/settings');
 
   useEffect(() => {

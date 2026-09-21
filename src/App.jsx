@@ -10,6 +10,10 @@ import FAQ from './pages/FAQ/FAQ';
 import Contact from './pages/Contact/Contact';
 import Cancellation from './pages/Cancellation/Cancellation';
 import Account from './pages/Account/Account';
+import ProductDetails from './pages/ProductDetails/ProductDetails';
+
+// Context
+import { CartProvider } from './context/CartContext';
 
 // Components
 import Header from './components/Header/Header';
@@ -21,23 +25,26 @@ import './App.css';
 function App() {
   return (
     <Router>
-      <div className="app-container">
-        <TrustBar />
-        <Header />
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/store" element={<Store />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/why-natural" element={<WhyNatural />} />
-            <Route path="/faqs" element={<FAQ />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/cancellation-request" element={<Cancellation />} />
-            <Route path="/account" element={<Account />} />
-          </Routes>
-        </main>
-        <Footer />
-      </div>
+      <CartProvider>
+        <div className="app-container">
+          <TrustBar />
+          <Header />
+          <main className="main-content">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/store" element={<Store />} />
+              <Route path="/product/:id" element={<ProductDetails />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/why-natural" element={<WhyNatural />} />
+              <Route path="/faqs" element={<FAQ />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/cancellation-request" element={<Cancellation />} />
+              <Route path="/account" element={<Account />} />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
+      </CartProvider>
     </Router>
   );
 }

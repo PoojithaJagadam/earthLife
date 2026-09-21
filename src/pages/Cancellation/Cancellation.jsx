@@ -21,7 +21,8 @@ const Cancellation = () => {
     setStatus('loading');
     
     try {
-      const response = await fetch('http://localhost:3000/api/cancellation-request', {
+      const endpoint = (import.meta.env.VITE_API_BASE_URL || '') + '/api/cancellation-request';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -37,7 +38,7 @@ const Cancellation = () => {
         setStatus('error');
         setErrorMessage(data.error || 'Something went wrong.');
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
       setErrorMessage('Network error. Please try again later.');
     }

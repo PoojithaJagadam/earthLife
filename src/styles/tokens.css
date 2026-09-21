@@ -27,6 +27,9 @@
   /* Typography */
   --font-heading: 'Outfit', sans-serif;
   --font-body: 'Inter', sans-serif;
+  --font-editorial: 'Playfair Display', Georgia, serif;
+  --font-accent: 'Caveat', cursive;
+  --color-hero-bg: #F4EBDC;
 
   /* Spacing */
   --spacing-xs: 0.25rem;
