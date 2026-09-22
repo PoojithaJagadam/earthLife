@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'motion/react';
 import { 
   Leaf, 
-  Heart, 
+  Sparkles, 
   RotateCw, 
   ArrowRight, 
   Truck, 
@@ -24,7 +24,6 @@ import { useEcwidCategories } from '../../hooks/useEcwidCategories';
 import LoadingState from '../../components/LoadingState/LoadingState';
 import ErrorState from '../../components/ErrorState/ErrorState';
 import EmptyState from '../../components/EmptyState/EmptyState';
-import { useCart } from '../../context/CartContext';
 import './Home.css';
 
 const CATEGORY_BG_COLORS = ['#F6ECE1', '#EBF2EB', '#F7EFE7', '#F4ECE4'];
@@ -32,7 +31,6 @@ const CATEGORY_BG_COLORS = ['#F6ECE1', '#EBF2EB', '#F7EFE7', '#F4ECE4'];
 const Home = () => {
   const shouldReduceMotion = useReducedMotion();
   const navigate = useNavigate();
-  const { toggleWishlist, isWishlisted } = useCart();
   const [activeSlide, setActiveSlide] = useState(0);
 
   // Live Ecwid Data Hooks
@@ -229,7 +227,7 @@ const Home = () => {
 
               <div className="hero-benefit-item">
                 <div className="benefit-icon" aria-hidden="true">
-                  <Heart size={18} strokeWidth={2} />
+                  <Sparkles size={18} strokeWidth={2} />
                 </div>
                 <div className="benefit-text">
                   <strong>Thoughtful Design</strong>
@@ -421,7 +419,6 @@ const Home = () => {
 
                 <div className="products-showcase-grid">
                   {displayedProducts.map((product) => {
-                    const wishlisted = isWishlisted(product.id);
                     const badgeText = product.ribbon?.text || (product.discountPercent ? `${product.discountPercent}% OFF` : null);
 
                     return (
@@ -435,31 +432,17 @@ const Home = () => {
                           if (e.key === 'Enter') handleProductClick(product.id);
                         }}
                       >
-                        {/* Top Badges and Wishlist */}
-                        <div className="product-card-top">
-                          {badgeText && (
+                        {/* Top Badges */}
+                        {badgeText && (
+                          <div className="product-card-top">
                             <span 
                               className="product-bestseller-badge"
                               style={product.ribbon?.color ? { backgroundColor: product.ribbon.color } : undefined}
                             >
                               {badgeText}
                             </span>
-                          )}
-                          <button 
-                            className={`product-wishlist-toggle ${wishlisted ? 'active' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleWishlist(product.id);
-                            }}
-                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                          >
-                            <Heart 
-                              size={18} 
-                              fill={wishlisted ? '#E63946' : 'none'} 
-                              color={wishlisted ? '#E63946' : '#2C4A3B'} 
-                            />
-                          </button>
-                        </div>
+                          </div>
+                        )}
 
                         {/* Product Image */}
                         <div className="product-img-holder">

@@ -551,22 +551,6 @@
   letter-spacing: 0.4px;
 }
 
-.product-wishlist-toggle {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: auto;
-  transition: transform 0.2s ease;
-}
-
-.product-wishlist-toggle:hover {
-  transform: scale(1.15);
-}
-
 /* Product image container with 1:1 aspect ratio and contain mode */
 .product-img-holder {
   aspect-ratio: 1/1;

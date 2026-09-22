@@ -11,6 +11,8 @@ import Contact from './pages/Contact/Contact';
 import Cancellation from './pages/Cancellation/Cancellation';
 import Account from './pages/Account/Account';
 import ProductDetails from './pages/ProductDetails/ProductDetails';
+import Cart from './pages/Cart/Cart';
+import Checkout from './pages/Checkout/Checkout';
 
 // Context
 import { CartProvider } from './context/CartContext';
@@ -40,6 +42,8 @@ function App() {
               <Route path="/contact" element={<Contact />} />
               <Route path="/cancellation-request" element={<Cancellation />} />
               <Route path="/account" element={<Account />} />
+              <Route path="/cart" element={<Cart />} />
+              <Route path="/checkout" element={<Checkout />} />
             </Routes>
           </main>
           <Footer />

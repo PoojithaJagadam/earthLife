@@ -222,7 +222,7 @@ export async function fetchEcwidProducts(options = {}) {
   try {
     const directUrl = new URL(`https://app.ecwid.com/api/v3/${ECWID_STORE_ID}/products`);
     directUrl.searchParams.set('token', ECWID_PUBLIC_TOKEN);
-    directUrl.searchParams.set('limit', String(options.limit || 12));
+    directUrl.searchParams.set('limit', String(options.limit || 100));
     directUrl.searchParams.set('offset', String(options.offset || 0));
     if (options.keyword) directUrl.searchParams.set('keyword', options.keyword);
     if (resolvedCat) {
@@ -245,16 +245,11 @@ export async function fetchEcwidProducts(options = {}) {
       total: rawData.total ?? normalizedItems.length,
       count: normalizedItems.length,
       offset: rawData.offset ?? 0,
-      limit: rawData.limit ?? (options.limit || 12),
+      limit: rawData.limit ?? (options.limit || 100),
       items: normalizedItems
     };
 
     if (!options.category && !options.keyword && !options.offset) {
-      setSessionCache(CACHE_KEY_PRODUCTS, result);
-    }
-    return result;
-
-    if (!options.category && !options.keyword) {
       setSessionCache(CACHE_KEY_PRODUCTS, result);
     }
     return result;

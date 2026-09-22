@@ -165,7 +165,7 @@ export async function handleEcwidApi(req, res) {
 
   // Set permissive CORS and JSON headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
   res.setHeader('Content-Type', 'application/json');
 
@@ -175,6 +175,7 @@ export async function handleEcwidApi(req, res) {
   }
 
   const isGetOrHead = req.method === 'GET' || req.method === 'HEAD';
+  const isPost = req.method === 'POST';
 
   try {
     // 1. GET /api/ecwid/products
@@ -314,6 +315,465 @@ export async function handleEcwidApi(req, res) {
         source: 'ecwid_live_api',
         total: data.total,
         items: data.items || []
+      }));
+    }
+
+    // 4. POST /api/ecwid/cart/calculate (Authoritative Ecwid Cart Calculation)
+    if (cleanPath === '/api/ecwid/cart/calculate' && (isPost || isGetOrHead)) {
+      let bodyData = {};
+      if (isPost) {
+        if (req.body && typeof req.body === 'object') {
+          bodyData = req.body;
+        } else {
+          bodyData = await new Promise((resolve) => {
+            let buffer = '';
+            req.on('data', chunk => { buffer += chunk; });
+            req.on('end', () => {
+              try {
+                resolve(buffer ? JSON.parse(buffer) : {});
+              } catch {
+                resolve({});
+              }
+            });
+            req.on('error', () => resolve({}));
+          });
+        }
+      } else {
+        const itemsParam = urlObj.searchParams.get('items');
+        if (itemsParam) {
+          try {
+            bodyData = { items: JSON.parse(decodeURIComponent(itemsParam)) };
+          } catch {
+            bodyData = { items: [] };
+          }
+        }
+      }
+
+      const inputItems = Array.isArray(bodyData.items) ? bodyData.items : [];
+      const couponCode = bodyData.couponCode ? String(bodyData.couponCode).trim() : null;
+
+      if (inputItems.length === 0) {
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          storeId,
+          source: 'ecwid_live_api',
+          subtotal: 0,
+          subtotalWithoutTax: 0,
+          total: 0,
+          totalWithoutTax: 0,
+          tax: 0,
+          taxes: [],
+          shipping: 0,
+          discount: 0,
+          couponDiscount: 0,
+          volumeDiscount: 0,
+          items: []
+        }));
+      }
+
+      // Format items adhering to Ecwid OrderItem and OrderItemProductOption specs
+      const ecwidCalcPayload = {
+        items: inputItems.map(item => {
+          const selectedOptions = [];
+          if (Array.isArray(item.selectedOptions)) {
+            item.selectedOptions.forEach(opt => {
+              if (opt && opt.name) {
+                selectedOptions.push({
+                  name: String(opt.name),
+                  value: String(opt.value || ''),
+                  type: String(opt.type || 'CHOICE')
+                });
+              }
+            });
+          } else if (item.options && typeof item.options === 'object') {
+            Object.entries(item.options).forEach(([optName, optVal]) => {
+              if (optVal !== undefined && optVal !== null) {
+                selectedOptions.push({
+                  name: String(optName),
+                  value: String(optVal),
+                  type: 'CHOICE'
+                });
+              }
+            });
+          }
+
+          return {
+            productId: Number(item.productId || item.id),
+            name: item.name || '',
+            price: Number(item.price || 0),
+            quantity: Math.max(1, Number(item.quantity || 1)),
+            sku: item.sku || '',
+            selectedOptions: selectedOptions.length > 0 ? selectedOptions : undefined
+          };
+        })
+      };
+
+      if (bodyData.shippingAddress && typeof bodyData.shippingAddress === 'object') {
+        const addr = bodyData.shippingAddress;
+        ecwidCalcPayload.shippingAddress = {
+          name: addr.name || addr.fullName || '',
+          companyName: addr.companyName || '',
+          street: addr.street || addr.address1 || '',
+          city: addr.city || '',
+          countryCode: addr.countryCode || 'IN',
+          postalCode: addr.postalCode || addr.pincode || addr.pinCode || '',
+          stateOrProvinceCode: addr.stateOrProvinceCode || addr.state || '',
+          phone: addr.phone || ''
+        };
+      }
+
+      if (bodyData.customer && typeof bodyData.customer === 'object') {
+        ecwidCalcPayload.customer = {
+          email: bodyData.customer.email || '',
+          name: bodyData.customer.name || ''
+        };
+      }
+
+      if (couponCode) {
+        ecwidCalcPayload.couponCode = couponCode;
+      }
+
+      const calcUrl = `https://app.ecwid.com/api/v3/${storeId}/order/calculate?token=${token}`;
+      const calcRes = await fetchWithRetry(calcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(ecwidCalcPayload)
+      });
+
+      if (calcRes.ok) {
+        const calcData = await calcRes.json();
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          storeId,
+          source: 'ecwid_live_api',
+          subtotal: typeof calcData.subtotal === 'number' ? calcData.subtotal : 0,
+          subtotalWithoutTax: typeof calcData.subtotalWithoutTax === 'number' ? calcData.subtotalWithoutTax : 0,
+          total: typeof calcData.total === 'number' ? calcData.total : 0,
+          totalWithoutTax: typeof calcData.totalWithoutTax === 'number' ? calcData.totalWithoutTax : 0,
+          tax: typeof calcData.tax === 'number' ? calcData.tax : 0,
+          taxes: Array.isArray(calcData.taxes) ? calcData.taxes : [],
+          shipping: typeof calcData.shipping === 'number' ? calcData.shipping : 0,
+          discount: typeof calcData.discount === 'number' ? calcData.discount : 0,
+          couponDiscount: typeof calcData.couponDiscount === 'number' ? calcData.couponDiscount : 0,
+          volumeDiscount: typeof calcData.volumeDiscount === 'number' ? calcData.volumeDiscount : 0,
+          items: Array.isArray(calcData.items) ? calcData.items : [],
+          raw: calcData
+        }));
+      }
+
+      // Fallback: If Ecwid order/calculate rejects an invalid coupon or param, retry without coupon
+      if (couponCode) {
+        delete ecwidCalcPayload.couponCode;
+        const retryRes = await fetchWithRetry(calcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(ecwidCalcPayload)
+        });
+        if (retryRes.ok) {
+          const calcData = await retryRes.json();
+          res.statusCode = 200;
+          return res.end(JSON.stringify({
+            storeId,
+            source: 'ecwid_live_api',
+            subtotal: typeof calcData.subtotal === 'number' ? calcData.subtotal : 0,
+            subtotalWithoutTax: typeof calcData.subtotalWithoutTax === 'number' ? calcData.subtotalWithoutTax : 0,
+            total: typeof calcData.total === 'number' ? calcData.total : 0,
+            totalWithoutTax: typeof calcData.totalWithoutTax === 'number' ? calcData.totalWithoutTax : 0,
+            tax: typeof calcData.tax === 'number' ? calcData.tax : 0,
+            taxes: Array.isArray(calcData.taxes) ? calcData.taxes : [],
+            shipping: typeof calcData.shipping === 'number' ? calcData.shipping : 0,
+            discount: 0,
+            couponDiscount: 0,
+            volumeDiscount: 0,
+            couponError: 'Invalid coupon code',
+            items: Array.isArray(calcData.items) ? calcData.items : [],
+            raw: calcData
+          }));
+        }
+      }
+
+      // If calculate still fails, calculate deterministic subtotal from prices
+      const simpleSubtotal = inputItems.reduce((acc, it) => acc + (Number(it.price || 0) * Math.max(1, Number(it.quantity || 1))), 0);
+      res.statusCode = 200;
+      return res.end(JSON.stringify({
+        storeId,
+        source: 'ecwid_local_fallback',
+        subtotal: simpleSubtotal,
+        subtotalWithoutTax: simpleSubtotal,
+        total: simpleSubtotal,
+        totalWithoutTax: simpleSubtotal,
+        tax: 0,
+        taxes: [],
+        shipping: 0,
+        discount: 0,
+        couponDiscount: 0,
+        volumeDiscount: 0,
+        items: inputItems
+      }));
+    }
+
+    // 5. GET /api/ecwid/customer/addresses - Check if customer address storage is supported via Ecwid Secret Token
+    if (cleanPath === '/api/ecwid/customer/addresses' && isGetOrHead) {
+      const email = urlObj.searchParams.get('email');
+      const hasSecretToken = Boolean(process.env.ECWID_SECRET_TOKEN);
+
+      if (!hasSecretToken) {
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          supported: false,
+          requiresSecretToken: true,
+          message: 'Ecwid Secret Token (ECWID_SECRET_TOKEN) with read_customers/update_customers scope is required to query or persist customer addresses directly to the remote Ecwid Customer database. Using customer checkout session storage.',
+          addresses: []
+        }));
+      }
+
+      // If secret token is present, query Ecwid customers API
+      try {
+        const customerUrl = new URL(`https://app.ecwid.com/api/v3/${storeId}/customers`);
+        customerUrl.searchParams.set('token', token);
+        if (email) customerUrl.searchParams.set('email', email);
+
+        const customerRes = await fetchWithRetry(customerUrl.toString(), {
+          headers: { 'Accept': 'application/json' }
+        });
+
+        if (!customerRes.ok) {
+          res.statusCode = 200;
+          return res.end(JSON.stringify({
+            supported: false,
+            error: customerRes.statusText,
+            addresses: []
+          }));
+        }
+
+        const customerData = await customerRes.json();
+        const customer = (customerData.items || [])[0];
+        const addresses = [];
+
+        if (customer) {
+          if (customer.shippingAddresses && Array.isArray(customer.shippingAddresses)) {
+            addresses.push(...customer.shippingAddresses);
+          } else if (customer.billingAddress) {
+            addresses.push(customer.billingAddress);
+          }
+        }
+
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          supported: true,
+          addresses
+        }));
+      } catch (err) {
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          supported: false,
+          error: err.message,
+          addresses: []
+        }));
+      }
+    }
+
+    // 6. GET /api/ecwid/payment-methods - Retrieve store-configured payment options from Ecwid
+    if (cleanPath === '/api/ecwid/payment-methods' && isGetOrHead) {
+      try {
+        const paymentUrl = `https://app.ecwid.com/api/v3/${storeId}/profile/paymentOptions?token=${token}`;
+        const paymentRes = await fetchWithRetry(paymentUrl, {
+          headers: { 'Accept': 'application/json' }
+        });
+
+        if (paymentRes.ok) {
+          const options = await paymentRes.json();
+          res.statusCode = 200;
+          return res.end(JSON.stringify({
+            storeId,
+            source: 'ecwid_live_api',
+            paymentMethods: Array.isArray(options) ? options : []
+          }));
+        }
+
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          storeId,
+          source: 'ecwid_configured_methods',
+          paymentMethods: [
+            {
+              id: '1507922482-1789896468824',
+              enabled: true,
+              configured: true,
+              checkoutTitle: 'Razorpay',
+              type: 'razorpay',
+              title: 'UPI / Cards / Net Banking (Razorpay)',
+              description: 'Instant secure payment via UPI, Cards, and Net Banking'
+            },
+            {
+              id: '1241677134-1787992078888',
+              enabled: true,
+              configured: true,
+              checkoutTitle: 'Pay by cash',
+              type: 'cod',
+              title: 'Cash on Delivery (COD)',
+              description: 'Pay in cash upon physical delivery at your doorstep'
+            }
+          ]
+        }));
+      } catch {
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          storeId,
+          source: 'ecwid_configured_fallback',
+          paymentMethods: [
+            {
+              id: '1507922482-1789896468824',
+              enabled: true,
+              configured: true,
+              checkoutTitle: 'Razorpay',
+              type: 'razorpay'
+            },
+            {
+              id: '1241677134-1787992078888',
+              enabled: true,
+              configured: true,
+              checkoutTitle: 'Pay by cash',
+              type: 'cod'
+            }
+          ]
+        }));
+      }
+    }
+
+    // 7. POST /api/ecwid/order/create - Authoritative Ecwid Order Creation
+    if (cleanPath === '/api/ecwid/order/create' && isPost) {
+      let bodyData = {};
+      if (req.body && typeof req.body === 'object') {
+        bodyData = req.body;
+      } else {
+        bodyData = await new Promise((resolve) => {
+          let buffer = '';
+          req.on('data', chunk => { buffer += chunk; });
+          req.on('end', () => {
+            try {
+              resolve(buffer ? JSON.parse(buffer) : {});
+            } catch {
+              resolve({});
+            }
+          });
+          req.on('error', () => resolve({}));
+        });
+      }
+
+      const { items, customer, shippingAddress, paymentMethod, totals, orderComments } = bodyData;
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        res.statusCode = 400;
+        return res.end(JSON.stringify({ error: 'Cart items are required to place an order.' }));
+      }
+
+      if (!customer || !customer.email) {
+        res.statusCode = 400;
+        return res.end(JSON.stringify({ error: 'Customer email is required.' }));
+      }
+
+      if (!shippingAddress || !shippingAddress.name) {
+        res.statusCode = 400;
+        return res.end(JSON.stringify({ error: 'Shipping address is required.' }));
+      }
+
+      const isCOD = paymentMethod === 'cod' || paymentMethod === 'Pay by cash';
+      const ecwidPaymentTitle = isCOD ? 'Pay by cash' : 'Razorpay';
+      const ecwidPaymentStatus = isCOD ? 'AWAITING_PAYMENT' : 'INCOMPLETE';
+
+      const ecwidItems = items.map((it) => {
+        const selectedOptions = [];
+        if (it.options && typeof it.options === 'object') {
+          Object.entries(it.options).forEach(([name, val]) => {
+            selectedOptions.push({
+              name: String(name),
+              value: String(val),
+              type: 'CHOICE'
+            });
+          });
+        }
+
+        return {
+          productId: Number(it.productId || it.id),
+          name: it.name || '',
+          price: Number(it.price || 0),
+          quantity: Math.max(1, Number(it.quantity || 1)),
+          sku: it.sku || '',
+          selectedOptions: selectedOptions.length > 0 ? selectedOptions : undefined
+        };
+      });
+
+      const orderPayload = {
+        email: customer.email.trim(),
+        paymentMethod: ecwidPaymentTitle,
+        paymentStatus: ecwidPaymentStatus,
+        fulfillmentStatus: 'AWAITING_PROCESSING',
+        subtotal: Number(totals?.subtotal || 0),
+        total: Number(totals?.total || totals?.subtotal || 0),
+        tax: Number(totals?.tax || 0),
+        items: ecwidItems,
+        shippingPerson: {
+          name: shippingAddress.name || '',
+          companyName: shippingAddress.companyName || '',
+          street: shippingAddress.street || shippingAddress.address1 || '',
+          city: shippingAddress.city || '',
+          countryCode: 'IN',
+          countryName: 'India',
+          postalCode: shippingAddress.postalCode || shippingAddress.pincode || '',
+          stateOrProvinceCode: shippingAddress.state || '',
+          phone: shippingAddress.phone || ''
+        },
+        billingPerson: {
+          name: shippingAddress.name || '',
+          companyName: shippingAddress.companyName || '',
+          street: shippingAddress.street || shippingAddress.address1 || '',
+          city: shippingAddress.city || '',
+          countryCode: 'IN',
+          countryName: 'India',
+          postalCode: shippingAddress.postalCode || shippingAddress.pincode || '',
+          stateOrProvinceCode: shippingAddress.state || '',
+          phone: shippingAddress.phone || ''
+        },
+        shippingOption: {
+          shippingMethodName: 'Standard Delivery',
+          shippingRate: Number(totals?.shipping || 0)
+        },
+        orderComments: orderComments || undefined
+      };
+
+      const createOrderUrl = `https://app.ecwid.com/api/v3/${storeId}/orders?token=${token}`;
+      const orderRes = await fetchWithRetry(createOrderUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(orderPayload)
+      });
+
+      if (!orderRes.ok) {
+        const errText = await orderRes.text();
+        console.error('Failed to create Ecwid order:', errText);
+        res.statusCode = orderRes.status;
+        return res.end(JSON.stringify({
+          error: 'Failed to create order in Ecwid',
+          details: errText
+        }));
+      }
+
+      const orderResult = await orderRes.json();
+      res.statusCode = 200;
+      return res.end(JSON.stringify({
+        success: true,
+        orderId: orderResult.orderId,
+        id: orderResult.id,
+        order: orderResult,
+        paymentMethod: ecwidPaymentTitle,
+        paymentStatus: ecwidPaymentStatus
       }));
     }
 

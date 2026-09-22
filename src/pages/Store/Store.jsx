@@ -1,78 +1,124 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Heart, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import Container from '../../components/UI/Container/Container';
-import { CATEGORY_TABS } from '../../data/products';
 import { useEcwidProducts } from '../../hooks/useEcwidProducts';
 import LoadingState from '../../components/LoadingState/LoadingState';
 import ErrorState from '../../components/ErrorState/ErrorState';
-import { useCart } from '../../context/CartContext';
 import heroProductsImg from '../../assets/hero_products_mobile.png';
 import './Store.css';
+
+// 4 official store browsing categories mapped to Ecwid catalog IDs
+const STORE_CATEGORY_TABS = [
+  { id: 'all', label: 'All Products', ecwidId: null },
+  { id: 'neem', label: 'Neem', ecwidId: '206710677' },
+  { id: 'bamboo', label: 'Bamboo', ecwidId: '206706898' },
+  { id: 'coconut-coir', label: 'Coconut Coir', ecwidId: '206708145', aliases: ['coconut', 'coconut-coir', 'coir'] }
+];
+
+const ITEMS_PER_PAGE = 12;
 
 const Store = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { toggleWishlist, isWishlisted } = useCart();
-  const { products, loading, error, refetch } = useEcwidProducts();
+  const catalogTopRef = useRef(null);
 
-  // Category filter from URL params (e.g. ?category=neem) or default 'all'
-  const activeCategory = searchParams.get('category') || 'all';
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  // 1. URL State Parsing
+  const rawCategory = (searchParams.get('category') || 'all').trim().toLowerCase();
+  const keywordParam = (searchParams.get('keyword') || searchParams.get('search') || '').trim();
+  const pageParam = parseInt(searchParams.get('page') || '1', 10);
+  const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
 
-  // Handle Tab Selection
-  const handleTabChange = (tabId) => {
-    setCurrentPage(1);
-    if (tabId === 'all') {
-      setSearchParams({});
-    } else {
-      setSearchParams({ category: tabId });
+  // Resolve current active tab (including aliases like 'coconut' -> 'coconut-coir')
+  const currentTab = useMemo(() => {
+    const matched = STORE_CATEGORY_TABS.find(
+      (t) => t.id === rawCategory || (Array.isArray(t.aliases) && t.aliases.includes(rawCategory))
+    );
+    return matched || STORE_CATEGORY_TABS[0];
+  }, [rawCategory]);
+
+  const activeCategoryId = currentTab.id;
+
+  // 2. Search query local state for input typing
+  const [searchInput, setSearchInput] = useState(keywordParam);
+  const [prevKeywordParam, setPrevKeywordParam] = useState(keywordParam);
+
+  // Synchronize search input if URL changes externally without an effect warning
+  if (prevKeywordParam !== keywordParam) {
+    setPrevKeywordParam(keywordParam);
+    setSearchInput(keywordParam);
+  }
+
+  // URL state update helper
+  const updateUrlParams = useCallback((catId, newPage, kw) => {
+    const nextParams = new URLSearchParams();
+    if (catId && catId !== 'all') {
+      nextParams.set('category', catId);
     }
+    const cleanKw = (kw !== undefined ? kw : keywordParam).trim();
+    if (cleanKw) {
+      nextParams.set('keyword', cleanKw);
+    }
+    if (newPage && newPage > 1) {
+      nextParams.set('page', String(newPage));
+    }
+    setSearchParams(nextParams);
+  }, [keywordParam, setSearchParams]);
+
+  // Debounced search query update: when query changes, update URL and reset to page 1
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      const trimmed = searchInput.trim();
+      if (trimmed !== keywordParam) {
+        updateUrlParams(activeCategoryId, 1, trimmed);
+      }
+    }, 350);
+
+    return () => clearTimeout(handler);
+  }, [searchInput, keywordParam, activeCategoryId, updateUrlParams]);
+
+  // Tab change handler: category changes reset pagination to page 1
+  const handleTabChange = (tabId) => {
+    updateUrlParams(tabId, 1, searchInput);
   };
 
-  // Filter live Ecwid products based on active category & search query
-  const filteredProducts = useMemo(() => {
-    if (!products || !Array.isArray(products)) return [];
-    return products.filter((product) => {
-      // Category match
-      const currentTab = CATEGORY_TABS.find((t) => t.id === activeCategory);
-      const targetCategoryId = currentTab?.categoryId;
+  // Search submit handler (instant on Enter)
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    updateUrlParams(activeCategoryId, 1, searchInput.trim());
+  };
 
-      const matchesCategory =
-        activeCategory === 'all' ||
-        product.categoryType === activeCategory ||
-        product.categoryId === activeCategory ||
-        String(product.categoryId) === String(activeCategory) ||
-        (Array.isArray(product.categoryIds) && product.categoryIds.includes(Number(activeCategory))) ||
-        (targetCategoryId && Array.isArray(product.categoryIds) && product.categoryIds.includes(Number(targetCategoryId)));
+  // Search clear handler
+  const handleClearSearch = () => {
+    setSearchInput('');
+    updateUrlParams(activeCategoryId, 1, '');
+  };
 
-      // Search match
-      const query = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !query ||
-        (product.name && product.name.toLowerCase().includes(query)) ||
-        (product.categoryTag && product.categoryTag.toLowerCase().includes(query)) ||
-        (product.categoryName && product.categoryName.toLowerCase().includes(query)) ||
-        (product.sku && product.sku.toLowerCase().includes(query)) ||
-        (product.description && product.description.toLowerCase().includes(query));
+  // 3. Live Ecwid Product Query with limit & offset pagination
+  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+  const ecwidCategoryArg = currentTab.id === 'all' ? null : currentTab.ecwidId;
+  const ecwidKeywordArg = keywordParam || null;
 
-      return matchesCategory && matchesSearch;
-    });
-  }, [products, activeCategory, searchQuery]);
+  const { products, total, loading, error, refetch } = useEcwidProducts({
+    category: ecwidCategoryArg,
+    keyword: ecwidKeywordArg,
+    limit: ITEMS_PER_PAGE,
+    offset
+  });
 
-  // Pagination calculation
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
-  const paginatedProducts = useMemo(() => {
-    const startIdx = (currentPage - 1) * itemsPerPage;
-    return filteredProducts.slice(startIdx, startIdx + itemsPerPage);
-  }, [filteredProducts, currentPage, itemsPerPage]);
+  // Calculate dynamic total pages from live Ecwid total product count
+  const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
 
-  const activeTabLabel = useMemo(() => {
-    const tab = CATEGORY_TABS.find((t) => t.id === activeCategory);
-    return tab ? tab.label : 'All Products';
-  }, [activeCategory]);
+  // Page change handler
+  const handlePageChange = (newPage) => {
+    if (newPage < 1 || newPage > totalPages || newPage === currentPage) return;
+    updateUrlParams(activeCategoryId, newPage, searchInput);
+    if (catalogTopRef.current) {
+      catalogTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 380, behavior: 'smooth' });
+    }
+  };
 
   return (
     <div className="store-page">
@@ -85,9 +131,15 @@ const Store = () => {
               <nav className="store-breadcrumbs" aria-label="Breadcrumb">
                 <Link to="/">Home</Link>
                 <span className="breadcrumb-separator">&gt;</span>
-                <span className="breadcrumb-current">
-                  {activeCategory === 'all' ? 'Store' : activeTabLabel}
-                </span>
+                {currentTab.id === 'all' ? (
+                  <span className="breadcrumb-current">Store</span>
+                ) : (
+                  <>
+                    <Link to="/store">Store</Link>
+                    <span className="breadcrumb-separator">&gt;</span>
+                    <span className="breadcrumb-current">{currentTab.label}</span>
+                  </>
+                )}
               </nav>
 
               <h1 className="store-hero-title">
@@ -151,14 +203,14 @@ const Store = () => {
       </section>
 
       {/* Main Catalog Section */}
-      <section className="store-catalog-section" aria-label="Products Catalog">
+      <section className="store-catalog-section" aria-label="Products Catalog" ref={catalogTopRef}>
         <Container>
           {/* Controls Bar: Category Tabs & Search Box */}
           <div className="store-controls-bar">
             {/* Category Filter Tabs */}
             <div className="store-category-tabs" role="tablist" aria-label="Filter by category">
-              {CATEGORY_TABS.map((tab) => {
-                const isActive = activeCategory === tab.id;
+              {STORE_CATEGORY_TABS.map((tab) => {
+                const isActive = activeCategoryId === tab.id;
                 return (
                   <button
                     key={tab.id}
@@ -173,31 +225,28 @@ const Store = () => {
               })}
             </div>
 
-            {/* Search Input */}
-            <div className="store-search-box">
+            {/* Search Form */}
+            <form onSubmit={handleSearchSubmit} className="store-search-box" role="search">
               <Search size={18} className="search-icon" aria-hidden="true" />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search products (e.g. hair comb, toothbrush...)"
                 aria-label="Search products"
                 className="store-search-input"
               />
-              {searchQuery && (
+              {searchInput && (
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
+                  onClick={handleClearSearch}
                   className="search-clear-btn"
                   aria-label="Clear search"
                 >
                   ✕
                 </button>
               )}
-            </div>
+            </form>
           </div>
 
           {/* Product Cards Grid (4 columns) / Loading / Error */}
@@ -209,10 +258,9 @@ const Store = () => {
               message={error}
               onRetry={refetch}
             />
-          ) : paginatedProducts.length > 0 ? (
+          ) : products && products.length > 0 ? (
             <div className="store-product-grid">
-              {paginatedProducts.map((product) => {
-                const wishlisted = isWishlisted(product.id);
+              {products.map((product) => {
                 return (
                   <div
                     key={product.id}
@@ -227,25 +275,6 @@ const Store = () => {
                       }
                     }}
                   >
-                    {/* Wishlist Toggle Button */}
-                    <div className="card-top-bar">
-                      <button
-                        type="button"
-                        className={`card-wishlist-btn ${wishlisted ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleWishlist(product.id);
-                        }}
-                        aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                      >
-                        <Heart
-                          size={18}
-                          fill={wishlisted ? '#E63946' : 'none'}
-                          color={wishlisted ? '#E63946' : '#6B7A72'}
-                        />
-                      </button>
-                    </div>
-
                     {/* Image Area with 1:1 Aspect Ratio & Safe Padding */}
                     <div className="card-img-container">
                       <img
@@ -296,27 +325,33 @@ const Store = () => {
             </div>
           ) : (
             <div className="store-no-results">
-              <p>No products found matching your search.</p>
+              <p>
+                {keywordParam
+                  ? `No products found matching "${keywordParam}" in ${currentTab.label}.`
+                  : currentPage > 1
+                  ? `No products found on page ${currentPage}.`
+                  : `No products currently available in ${currentTab.label}.`}
+              </p>
               <button
                 type="button"
                 onClick={() => {
-                  setSearchQuery('');
-                  handleTabChange('all');
+                  setSearchInput('');
+                  updateUrlParams('all', 1, '');
                 }}
                 className="reset-filters-btn"
               >
-                Clear Filters
+                {currentPage > 1 ? 'Go to Page 1' : 'Clear Filters'}
               </button>
             </div>
           )}
 
-          {/* Pagination Controls */}
+          {/* Pagination Controls - completely hidden when only one page exists */}
           {totalPages > 1 && (
             <div className="store-pagination-wrapper">
               <button
                 type="button"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage <= 1}
+                onClick={() => handlePageChange(currentPage - 1)}
                 className="pagination-arrow-btn"
                 aria-label="Previous page"
               >
@@ -327,7 +362,7 @@ const Store = () => {
                 <button
                   key={pageNum}
                   type="button"
-                  onClick={() => setCurrentPage(pageNum)}
+                  onClick={() => handlePageChange(pageNum)}
                   className={`pagination-num-btn ${currentPage === pageNum ? 'active' : ''}`}
                   aria-label={`Page ${pageNum}`}
                   aria-current={currentPage === pageNum ? 'page' : undefined}
@@ -338,8 +373,8 @@ const Store = () => {
 
               <button
                 type="button"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage >= totalPages}
+                onClick={() => handlePageChange(currentPage + 1)}
                 className="pagination-arrow-btn"
                 aria-label="Next page"
               >
@@ -354,3 +389,4 @@ const Store = () => {
 };
 
 export default Store;
+

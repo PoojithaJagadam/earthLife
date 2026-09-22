@@ -42,7 +42,7 @@ const Header = () => {
         <div className="header-actions">
           <Link to="/store#!/~/search" className="icon-btn" aria-label="Search"><Search size={20} /></Link>
           <Link to="/account" className="icon-btn" aria-label="Account"><User size={20} /></Link>
-          <Link to="/store#!/~/cart" className="icon-btn cart-btn" aria-label="Cart">
+          <Link to="/cart" className="icon-btn cart-btn" aria-label="Cart" id="header-cart-btn">
             <ShoppingCart size={20} />
             <span className="cart-badge">{cartCount}</span>
           </Link>

@@ -1,96 +1,180 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  ensureEcwidLoaded,
+  getSavedCartItems,
+  addProductToEcwidCart,
+  removeProductFromEcwidCart,
+  updateProductQuantityInEcwidCart,
+  clearEcwidCart,
+  calculateEcwidOrder,
+  subscribeToEcwidCart
+} from '../ecwid/cart/ecwidCart';
 
 const CartContext = createContext();
 
 export const CartProvider = ({ children }) => {
-  const [cartItems, setCartItems] = useState(() => {
+  const [cartItems, setCartItems] = useState(() => getSavedCartItems());
+  const [appliedCoupon, setAppliedCoupon] = useState('');
+  const [couponError, setCouponError] = useState(null);
+  const [shippingAddress, setShippingAddress] = useState(null);
+  const [customerEmail, setCustomerEmail] = useState(() => {
     try {
-      const saved = localStorage.getItem('earthlife_cart');
-      return saved ? JSON.parse(saved) : [];
+      return localStorage.getItem('earthlife_customer_email') || '';
     } catch {
-      return [];
+      return '';
     }
   });
-
-  const [wishlist, setWishlist] = useState(() => {
-    try {
-      const saved = localStorage.getItem('earthlife_wishlist');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+  const [loadingTotals, setLoadingTotals] = useState(false);
+  const [cartTotals, setCartTotals] = useState({
+    subtotal: 0,
+    total: 0,
+    tax: 0,
+    taxes: [],
+    shipping: 0,
+    discount: 0,
+    couponDiscount: 0,
+    volumeDiscount: 0
   });
 
   const [toast, setToast] = useState(null);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('earthlife_cart', JSON.stringify(cartItems));
-    } catch {
-      // ignore
-    }
-  }, [cartItems]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('earthlife_wishlist', JSON.stringify(wishlist));
-    } catch {
-      // ignore
-    }
-  }, [wishlist]);
-
-  const showToast = (message, product = null) => {
+  const showToast = useCallback((message, product = null) => {
     setToast({ message, product });
     setTimeout(() => {
       setToast(null);
-    }, 3000);
-  };
+    }, 3500);
+  }, []);
 
-  const addToCart = (product, quantity = 1) => {
-    setCartItems(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        return prev.map(item =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
-      }
-      return [...prev, { product, quantity }];
-    });
-    showToast(`Added "${product.name}" to your cart!`, product);
-  };
-
-  const removeFromCart = (productId) => {
-    setCartItems(prev => prev.filter(item => item.product.id !== productId));
-  };
-
-  const updateQuantity = (productId, quantity) => {
-    if (quantity <= 0) {
-      removeFromCart(productId);
+  // Recalculate totals whenever items or applied coupon or shipping address change
+  const refreshTotals = useCallback(async (items, coupon = appliedCoupon, address = shippingAddress) => {
+    if (!items || items.length === 0) {
+      setCartTotals({
+        subtotal: 0,
+        total: 0,
+        tax: 0,
+        taxes: [],
+        shipping: 0,
+        discount: 0,
+        couponDiscount: 0,
+        volumeDiscount: 0
+      });
+      setCouponError(null);
       return;
     }
-    setCartItems(prev =>
-      prev.map(item =>
-        item.product.id === productId ? { ...item, quantity } : item
-      )
-    );
-  };
 
-  const toggleWishlist = (productId) => {
-    setWishlist(prev => {
-      const exists = prev.includes(productId);
-      const updated = exists ? prev.filter(id => id !== productId) : [...prev, productId];
-      showToast(exists ? 'Removed from wishlist' : 'Added to wishlist!');
-      return updated;
+    setLoadingTotals(true);
+    try {
+      const calculated = await calculateEcwidOrder(items, coupon, address);
+      setCartTotals(calculated);
+      if (calculated.couponError) {
+        setCouponError(calculated.couponError);
+      } else {
+        setCouponError(null);
+      }
+    } catch (err) {
+      console.error('Failed to calculate Ecwid cart totals:', err);
+    } finally {
+      setLoadingTotals(false);
+    }
+  }, [appliedCoupon, shippingAddress]);
+
+  // Initialize Ecwid script & subscribe to Ecwid storefront changes
+  useEffect(() => {
+    ensureEcwidLoaded();
+
+    const unsubscribe = subscribeToEcwidCart((ecwidCart) => {
+      // When Ecwid Storefront updates cart items, we can sync
+      if (ecwidCart && typeof ecwidCart === 'object') {
+        refreshTotals(cartItems, appliedCoupon);
+      }
     });
+
+    return () => unsubscribe();
+  }, [cartItems, appliedCoupon, refreshTotals]);
+
+  useEffect(() => {
+    refreshTotals(cartItems, appliedCoupon);
+  }, [cartItems, appliedCoupon, refreshTotals]);
+
+  // Add product to cart with selected options
+  const addToCart = async (product, quantity = 1, options = {}) => {
+    try {
+      const updated = await addProductToEcwidCart(product, quantity, options);
+      setCartItems(updated);
+      showToast(`Added "${product.name}" to your cart!`, product);
+      return true;
+    } catch (err) {
+      console.error('Error adding to cart:', err);
+      showToast(`Could not add "${product.name}" to cart.`);
+      return false;
+    }
   };
 
-  const isWishlisted = (productId) => wishlist.includes(productId);
+  // Remove item by itemKey or productId
+  const removeFromCart = async (itemKeyOrId) => {
+    try {
+      // Find actual itemKey if productId was passed
+      const target = cartItems.find(
+        (it) => it.itemKey === itemKeyOrId || it.productId === itemKeyOrId || it.id === itemKeyOrId
+      );
+      const keyToRemove = target ? target.itemKey : itemKeyOrId;
+      const updated = await removeProductFromEcwidCart(keyToRemove);
+      setCartItems(updated);
+      if (target) {
+        showToast(`Removed "${target.name}" from your cart.`);
+      }
+    } catch (err) {
+      console.error('Error removing from cart:', err);
+    }
+  };
 
-  const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
-  const cartTotal = cartItems.reduce(
-    (acc, item) => acc + item.product.price * item.quantity,
+  // Update item quantity
+  const updateQuantity = async (itemKeyOrId, quantity) => {
+    try {
+      const target = cartItems.find(
+        (it) => it.itemKey === itemKeyOrId || it.productId === itemKeyOrId || it.id === itemKeyOrId
+      );
+      const keyToUpdate = target ? target.itemKey : itemKeyOrId;
+      const updated = await updateProductQuantityInEcwidCart(keyToUpdate, quantity);
+      setCartItems(updated);
+    } catch (err) {
+      console.error('Error updating quantity:', err);
+    }
+  };
+
+  // Clear entire cart
+  const clearCart = async () => {
+    try {
+      const updated = await clearEcwidCart();
+      setCartItems(updated);
+      setAppliedCoupon('');
+      setCouponError(null);
+      showToast('Your cart has been cleared.');
+    } catch (err) {
+      console.error('Error clearing cart:', err);
+    }
+  };
+
+  // Apply coupon code via Ecwid calculate
+  const applyCoupon = async (code) => {
+    const trimmed = String(code || '').trim();
+    if (!trimmed) {
+      setAppliedCoupon('');
+      setCouponError(null);
+      return;
+    }
+
+    setAppliedCoupon(trimmed);
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon('');
+    setCouponError(null);
+  };
+
+  const cartCount = cartItems.reduce((acc, item) => acc + (Number(item.quantity) || 1), 0);
+  const cartTotal = cartTotals.total || cartTotals.subtotal || cartItems.reduce(
+    (acc, item) => acc + (Number(item.price) || 0) * (Number(item.quantity) || 1),
     0
   );
 
@@ -100,12 +184,21 @@ export const CartProvider = ({ children }) => {
         cartItems,
         cartCount,
         cartTotal,
+        cartTotals,
+        loadingTotals,
+        appliedCoupon,
+        couponError,
+        shippingAddress,
+        setShippingAddress,
+        customerEmail,
+        setCustomerEmail,
+        applyCoupon,
+        removeCoupon,
         addToCart,
         removeFromCart,
         updateQuantity,
-        wishlist,
-        toggleWishlist,
-        isWishlisted,
+        clearCart,
+        refreshTotals,
         toast,
         dismissToast: () => setToast(null)
       }}
@@ -119,7 +212,7 @@ export const CartProvider = ({ children }) => {
             right: '24px',
             backgroundColor: '#1E3A2B',
             color: '#FFFFFF',
-            padding: '14px 20px',
+            padding: '14px 22px',
             borderRadius: '8px',
             boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
             zIndex: 9999,

@@ -302,30 +302,6 @@
   border-color: #CCD8D0;
 }
 
-/* Wishlist Top Bar */
-.card-top-bar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 24px;
-  margin-bottom: 0.25rem;
-}
-
-.card-wishlist-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease;
-}
-
-.card-wishlist-btn:hover {
-  transform: scale(1.15);
-}
-
 /* Product Image Holder: 1:1 Aspect Ratio, clean padding */
 .card-img-container {
   aspect-ratio: 1/1;
@@ -485,44 +461,62 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.65rem;
-  margin-top: 3.5rem;
+  gap: 1.25rem;
+  margin: 3rem 0 3.5rem;
 }
 
-.pagination-arrow-btn,
-.pagination-num-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+.pagination-arrow-btn {
+  background: transparent;
+  border: none;
+  color: #1E3A2B;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #DCE3DE;
-  background-color: #FFFFFF;
-  color: #2C4A3B;
-  font-family: var(--font-heading, 'Outfit', sans-serif);
-  font-size: 0.92rem;
-  font-weight: 600;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   cursor: pointer;
+  padding: 0;
   transition: all 0.2s ease;
 }
 
 .pagination-arrow-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
-.pagination-arrow-btn:not(:disabled):hover,
-.pagination-num-btn:hover {
-  background-color: #F0F4F1;
-  border-color: #B4C4B8;
+.pagination-arrow-btn:not(:disabled):hover {
+  color: #0E2018;
+  transform: scale(1.15);
+}
+
+.pagination-num-btn {
+  background: transparent;
+  border: none;
+  color: #2C4A3B;
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+  font-size: 0.95rem;
+  font-weight: 500;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+
+.pagination-num-btn:hover:not(.active) {
+  color: #1E3A2B;
+  font-weight: 600;
 }
 
 .pagination-num-btn.active {
   background-color: #1E3A2B;
   color: #FFFFFF;
-  border-color: #1E3A2B;
-  box-shadow: 0 2px 8px rgba(30, 58, 43, 0.25);
+  font-weight: 600;
 }
 
 /* --------------------------------------------------------------------------

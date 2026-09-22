@@ -133,30 +133,6 @@
   transition: transform 0.3s ease;
 }
 
-/* Wishlist Button */
-.pd-stage-wishlist-btn {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.9);
-  border: 1px solid #DCE3DE;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-  transition: all 0.2s ease;
-  z-index: 2;
-}
-
-.pd-stage-wishlist-btn:hover {
-  transform: scale(1.1);
-  background-color: #FFFFFF;
-}
-
 /* Stage Arrows */
 .pd-stage-arrow {
   position: absolute;
@@ -604,19 +580,6 @@
 .pd-related-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 20px rgba(30, 58, 43, 0.08);
-}
-
-.related-card-top {
-  display: flex;
-  justify-content: flex-end;
-  min-height: 22px;
-}
-
-.related-wishlist-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
 }
 
 .related-img-box {

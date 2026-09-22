@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
-  Heart, 
   ChevronLeft, 
   ChevronRight, 
   Plus, 
@@ -22,7 +21,7 @@ import './ProductDetails.css';
 const ProductDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { addToCart, toggleWishlist, isWishlisted } = useCart();
+  const { addToCart } = useCart();
 
   // Load live product data from Ecwid
   const { product, loading, error, refetch } = useEcwidProduct(id);
@@ -72,7 +71,6 @@ const ProductDetails = () => {
   }, [product]);
 
   const currentImage = gallery[selectedImageIndex] || product?.image || '';
-  const wishlisted = product ? isWishlisted(product.id) : false;
 
   // Stock availability
   const isOutOfStock = Boolean(product && !product.inStock);
@@ -92,14 +90,14 @@ const ProductDetails = () => {
   // Cart & Buy Now Handlers
   const handleAddToCart = () => {
     if (!product || isOutOfStock) return;
-    addToCart(product, quantity);
+    addToCart(product, quantity, selectedOptions);
     setAddedAnimation(true);
     setTimeout(() => setAddedAnimation(false), 1500);
   };
 
   const handleBuyNow = () => {
     if (!product || isOutOfStock) return;
-    addToCart(product, quantity);
+    addToCart(product, quantity, selectedOptions);
     navigate('/checkout');
   };
 
@@ -181,20 +179,6 @@ const ProductDetails = () => {
 
             {/* Main Stage */}
             <div className="pd-main-stage">
-              {/* Stage Wishlist Button (Top Right) */}
-              <button
-                type="button"
-                className={`pd-stage-wishlist-btn ${wishlisted ? 'active' : ''}`}
-                onClick={() => toggleWishlist(product.id)}
-                aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-              >
-                <Heart
-                  size={20}
-                  fill={wishlisted ? '#E63946' : 'none'}
-                  color={wishlisted ? '#E63946' : '#2C4A3B'}
-                />
-              </button>
-
               <img
                 src={currentImage}
                 alt={product.name}
@@ -428,7 +412,6 @@ const ProductDetails = () => {
 
             <div className="pd-related-grid">
               {relatedProducts.map((relProduct) => {
-                const relWishlisted = isWishlisted(relProduct.id);
                 return (
                   <div
                     key={relProduct.id}
@@ -443,24 +426,6 @@ const ProductDetails = () => {
                       }
                     }}
                   >
-                    <div className="related-card-top">
-                      <button
-                        type="button"
-                        className="related-wishlist-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleWishlist(relProduct.id);
-                        }}
-                        aria-label="Toggle wishlist"
-                      >
-                        <Heart
-                          size={17}
-                          fill={relWishlisted ? '#E63946' : 'none'}
-                          color={relWishlisted ? '#E63946' : '#718077'}
-                        />
-                      </button>
-                    </div>
-
                     <div className="related-img-box">
                       <img
                         src={relProduct.image}

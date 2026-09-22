@@ -7,37 +7,62 @@ import { fetchEcwidProducts, fetchEcwidProductById } from '../ecwid/storefront/e
 export function useEcwidProducts(options = {}) {
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
+  const [count, setCount] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const category = options.category;
   const keyword = options.keyword;
+  const limit = options.limit;
+  const optOffset = options.offset;
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const loadProducts = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchEcwidProducts({ category, keyword });
-      setProducts(data.items || []);
-      setTotal(data.total || (data.items ? data.items.length : 0));
-    } catch (err) {
-      console.error('Error in useEcwidProducts:', err);
-      setError(err.message || 'Failed to load products');
-    } finally {
-      setLoading(false);
-    }
-  }, [category, keyword]);
+  const refetch = useCallback(() => {
+    setRefreshTrigger((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
+    let ignore = false;
+    setLoading(true);
+    setError(null);
+
+    fetchEcwidProducts({
+      category,
+      keyword,
+      limit,
+      offset: optOffset
+    })
+      .then((data) => {
+        if (!ignore) {
+          setProducts(data?.items || []);
+          setTotal(typeof data?.total === 'number' ? data.total : (data?.items ? data.items.length : 0));
+          setCount(typeof data?.count === 'number' ? data.count : (data?.items ? data.items.length : 0));
+          setOffset(typeof data?.offset === 'number' ? data.offset : (optOffset || 0));
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error('Error in useEcwidProducts:', err);
+          setError(err.message || 'Failed to load products');
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [category, keyword, limit, optOffset, refreshTrigger]);
 
   return {
     products,
     total,
+    count,
+    offset,
     loading,
     error,
-    refetch: loadProducts
+    refetch
   };
 }
 
