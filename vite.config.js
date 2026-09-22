@@ -1,8 +1,24 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { handleEcwidApi } from './server/ecwid.js'
 
 function apiPlugin() {
-  const handleApi = (req, res, next) => {
+  const handleApi = async (req, res, next) => {
+    if (req.url && req.url.startsWith('/api/ecwid')) {
+      try {
+        const handled = await handleEcwidApi(req, res);
+        if (!handled) next();
+      } catch (err) {
+        console.error('Vite API proxy error:', err);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Internal API error' }));
+        }
+      }
+      return;
+    }
+
     if (req.url === '/api/cancellation-request' && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => {
@@ -34,56 +50,6 @@ function apiPlugin() {
           return res.end(JSON.stringify({ error: 'Invalid JSON body.' }));
         }
       });
-    } else if (req.url === '/api/ecwid/products' && req.method === 'GET') {
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({
-        storeId: '141633269',
-        source: 'ecwid_live_catalog',
-        productsCount: 4,
-        products: [
-          {
-            id: 'neem-wood-single-tooth-comb',
-            ecwidId: '866050195',
-            name: 'Neem Wood Single Tooth Comb',
-            price: 80,
-            categoryId: '206710677',
-            category: 'Neem Products',
-            sku: 'ELC-NWT-001',
-            image: 'https://d2j6dbq0eux0bg.cloudfront.net/images/141633269/products/866050195/6270045317.jpg'
-          },
-          {
-            id: 'neem-wood-dual-tooth-comb',
-            ecwidId: '866338339',
-            name: 'Neem Wood Dual Tooth Comb',
-            price: 90,
-            categoryId: '206710677',
-            category: 'Neem Products',
-            sku: 'ELC-NWT-002',
-            image: 'https://d2j6dbq0eux0bg.cloudfront.net/images-tmp/141633269/6272951417.jpg'
-          },
-          {
-            id: 'earthlife-co-bamboo-wood-bottom-paint-charcoal-infused-toothbrush-pack-of-2',
-            ecwidId: '860428517',
-            name: 'Earthlife Co. Bamboo Wood Bottom Paint Charcoal Infused Toothbrush (Pack of 2)',
-            price: 100,
-            categoryId: '206706898',
-            category: 'Bamboo Products',
-            sku: 'ELC-BWT-002',
-            image: 'https://d2j6dbq0eux0bg.cloudfront.net/images/141633269/products/860428517/6198951601.jpg'
-          },
-          {
-            id: 'earthlife-co-coconut-coir-scrub-pad-pack-of-5-2-circular-3-rectangular',
-            ecwidId: '860384629',
-            name: 'Earthlife Co. Coconut Coir Scrub Pad, Pack of 5 (2 Circular, 3 Rectangular)',
-            price: 130,
-            categoryId: '206708145',
-            category: 'Coconut Coir Products',
-            sku: 'ELC-CCRS-005',
-            image: 'https://d2j6dbq0eux0bg.cloudfront.net/images/141633269/products/860384629/6198936921.jpg'
-          }
-        ]
-      }));
     } else {
       next();
     }

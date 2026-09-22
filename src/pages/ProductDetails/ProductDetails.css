@@ -792,3 +792,142 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Ecwid Live Data Enhancements: Rich Description, Swatches, Pricing
+   -------------------------------------------------------------------------- */
+.pd-compare-price {
+  font-size: 1.25rem;
+  color: #8C9992;
+  text-decoration: line-through;
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+}
+
+.pd-discount-badge {
+  background-color: #FEEBC8;
+  color: #C05621;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+}
+
+.pd-options-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+  padding: 1.25rem;
+  background-color: #FFFFFF;
+  border: 1px solid #ECE4D8;
+  border-radius: 10px;
+}
+
+.pd-option-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pd-option-label {
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #1A3324;
+}
+
+.pd-option-label span {
+  font-weight: 400;
+  color: #5A6960;
+  margin-left: 0.4rem;
+}
+
+.pd-swatches-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.pd-swatch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border: 1.5px solid #DCE3DE;
+  border-radius: 8px;
+  background-color: #FFFFFF;
+  font-size: 0.88rem;
+  color: #2C4A3B;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pd-swatch-item:hover {
+  border-color: #1E3A2B;
+}
+
+.pd-swatch-item.active {
+  border-color: #1E3A2B;
+  background-color: #F0F4F1;
+  box-shadow: 0 1px 4px rgba(30, 58, 43, 0.12);
+  font-weight: 600;
+}
+
+.pd-swatch-color {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  display: inline-block;
+}
+
+.pd-ecwid-description {
+  font-family: var(--font-body, 'Inter', sans-serif);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: #37473E;
+}
+
+.pd-ecwid-description p {
+  margin: 0 0 1rem;
+}
+
+.pd-ecwid-description h2,
+.pd-ecwid-description h3,
+.pd-ecwid-description h4 {
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+  color: #1A3324;
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.pd-ecwid-description ul,
+.pd-ecwid-description ol {
+  padding-left: 1.4rem;
+  margin: 0 0 1.25rem;
+}
+
+.pd-ecwid-description li {
+  margin-bottom: 0.4rem;
+}
+
+.pd-ecwid-description strong {
+  color: #1A3324;
+}
+
+.return-store-btn {
+  display: inline-block;
+  padding: 0.75rem 1.75rem;
+  background-color: #1E3A2B;
+  color: #FFFFFF;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+  transition: background-color 0.2s ease;
+}
+
+.return-store-btn:hover {
+  background-color: #14281D;
+}

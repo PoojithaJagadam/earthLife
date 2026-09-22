@@ -2,12 +2,19 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '../.env' });
 import express from 'express';
 import cors from 'cors';
+import { handleEcwidApi } from './ecwid.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Ecwid API Proxy
+app.use('/api/ecwid', async (req, res, next) => {
+  const handled = await handleEcwidApi(req, res);
+  if (!handled) next();
+});
 
 // Basic rate limiting mechanism (in-memory for simplicity in Phase 1)
 const requestLogs = new Map();

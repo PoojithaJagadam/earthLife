@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'motion/react';
 import { 
@@ -16,9 +16,18 @@ import Button from '../../components/UI/Button/Button';
 import SectionHeading from '../../components/UI/SectionHeading/SectionHeading';
 import heroLeafImg from '../../assets/hero_leaf_transparent.png';
 import heroProductsMobileImg from '../../assets/hero_products_mobile.png';
-import { BESTSELLING_PRODUCTS, CATEGORIES } from '../../data/products';
+import catNeemImg from '../../assets/cat_neem.png';
+import catBambooImg from '../../assets/cat_bamboo.png';
+import catCoconutImg from '../../assets/cat_coconut.png';
+import { useEcwidProducts } from '../../hooks/useEcwidProducts';
+import { useEcwidCategories } from '../../hooks/useEcwidCategories';
+import LoadingState from '../../components/LoadingState/LoadingState';
+import ErrorState from '../../components/ErrorState/ErrorState';
+import EmptyState from '../../components/EmptyState/EmptyState';
 import { useCart } from '../../context/CartContext';
 import './Home.css';
+
+const CATEGORY_BG_COLORS = ['#F6ECE1', '#EBF2EB', '#F7EFE7', '#F4ECE4'];
 
 const Home = () => {
   const shouldReduceMotion = useReducedMotion();
@@ -26,17 +35,118 @@ const Home = () => {
   const { toggleWishlist, isWishlisted } = useCart();
   const [activeSlide, setActiveSlide] = useState(0);
 
+  // Live Ecwid Data Hooks
+  const { 
+    products: ecwidProducts, 
+    loading: productsLoading, 
+    error: productsError, 
+    refetch: refetchProducts 
+  } = useEcwidProducts();
+
+  const { 
+    categories: ecwidCategories, 
+    loading: categoriesLoading, 
+    error: categoriesError, 
+    refetch: refetchCategories 
+  } = useEcwidCategories();
+
+  // Dynamic Featured / Bestselling Products from live Ecwid catalog
+  const featuredProducts = useMemo(() => {
+    if (!ecwidProducts || !Array.isArray(ecwidProducts) || ecwidProducts.length === 0) {
+      return [];
+    }
+
+    // 1. Check if admin configured an Ecwid category for bestsellers or featured
+    if (ecwidCategories && Array.isArray(ecwidCategories) && ecwidCategories.length > 0) {
+      const bestsellerCategory = ecwidCategories.find(c => {
+        const name = (c.name || '').toLowerCase();
+        return name.includes('bestseller') || name.includes('featured') || name.includes('popular');
+      });
+
+      if (bestsellerCategory) {
+        const catProducts = ecwidProducts.filter(p => 
+          (Array.isArray(p.categoryIds) && p.categoryIds.includes(Number(bestsellerCategory.id))) ||
+          String(p.categoryId) === String(bestsellerCategory.id)
+        );
+        if (catProducts.length > 0) {
+          return catProducts;
+        }
+      }
+    }
+
+    // 2. Check for Ecwid native "Show on Store Frontpage" products (ordered by showOnFrontpage)
+    const frontpageProducts = ecwidProducts
+      .filter(p => p.showOnFrontpage !== null && p.showOnFrontpage !== undefined)
+      .sort((a, b) => a.showOnFrontpage - b.showOnFrontpage);
+
+    if (frontpageProducts.length > 0) {
+      return frontpageProducts;
+    }
+
+    // 3. Fallback to all catalog products
+    return ecwidProducts;
+  }, [ecwidProducts, ecwidCategories]);
+
+  // Carousel calculation
+  const visibleCount = 4;
+  const numSlides = Math.max(1, featuredProducts.length > visibleCount ? featuredProducts.length - visibleCount + 1 : 1);
+  const safeSlide = Math.min(activeSlide, numSlides - 1);
+
+  const displayedProducts = useMemo(() => {
+    if (featuredProducts.length <= visibleCount) {
+      return featuredProducts;
+    }
+    return featuredProducts.slice(safeSlide, safeSlide + visibleCount);
+  }, [featuredProducts, safeSlide, visibleCount]);
+
+  const nextSlide = () => {
+    setActiveSlide(prev => (prev + 1) % numSlides);
+  };
+
+  const prevSlide = () => {
+    setActiveSlide(prev => (prev - 1 + numSlides) % numSlides);
+  };
+
   const handleProductClick = (productId) => {
     navigate(`/product/${productId}`);
   };
 
-  const nextSlide = () => {
-    setActiveSlide(prev => (prev + 1) % BESTSELLING_PRODUCTS.length);
-  };
+  // Dynamic Categories from live Ecwid catalog
+  const displayedCategories = useMemo(() => {
+    if (!ecwidCategories || !Array.isArray(ecwidCategories) || ecwidCategories.length === 0) {
+      return [];
+    }
 
-  const prevSlide = () => {
-    setActiveSlide(prev => (prev - 1 + BESTSELLING_PRODUCTS.length) % BESTSELLING_PRODUCTS.length);
-  };
+    return ecwidCategories.map((cat, idx) => {
+      const name = cat.name || 'Category';
+      const nameLower = name.toLowerCase();
+
+      // Determine fallback image if Ecwid category has no image uploaded
+      let fallbackImg = catNeemImg;
+      if (nameLower.includes('bamboo')) fallbackImg = catBambooImg;
+      else if (nameLower.includes('coconut')) fallbackImg = catCoconutImg;
+
+      // Clean HTML description from Ecwid
+      const subtitle = cat.description
+        ? cat.description.replace(/<[^>]*>/g, '').trim()
+        : 'Explore natural essentials';
+
+      // Link to store with category filter
+      let link = `/store?category=${cat.id}`;
+      if (nameLower.includes('neem')) link = '/store?category=neem';
+      else if (nameLower.includes('bamboo')) link = '/store?category=bamboo';
+      else if (nameLower.includes('coconut')) link = '/store?category=coconut';
+
+      return {
+        id: cat.id,
+        title: name,
+        subtitle,
+        image: cat.imageUrl || cat.thumbnailUrl || fallbackImg,
+        bgColor: CATEGORY_BG_COLORS[idx % CATEGORY_BG_COLORS.length],
+        link
+      };
+    });
+  }, [ecwidCategories]);
 
   return (
     <div className="home-page">
@@ -210,7 +320,7 @@ const Home = () => {
         </Container>
       </section>
 
-      {/* Shop by Category: Horizontal cards matching uploaded UI design */}
+      {/* Shop by Category: Driven by live Ecwid catalog */}
       <section className="categories-section">
         <Container>
           <SectionHeading 
@@ -218,40 +328,55 @@ const Home = () => {
             subtitle="Explore our natural and sustainable collections" 
             align="center" 
           />
-          <div className="category-grid">
-            {CATEGORIES.map((cat) => (
-              <div 
-                key={cat.id} 
-                className="category-card-horizontal" 
-                style={{ backgroundColor: cat.bgColor }}
-                onClick={() => navigate(cat.link)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    navigate(cat.link);
-                  }
-                }}
-              >
-                <div className="cat-img-wrap">
-                  <img src={cat.image} alt={cat.title} className="cat-img-thumb" />
+          {categoriesLoading ? (
+            <LoadingState message="Loading categories from Ecwid..." />
+          ) : categoriesError ? (
+            <ErrorState 
+              title="Unable to Load Categories" 
+              message={categoriesError} 
+              onRetry={refetchCategories} 
+            />
+          ) : displayedCategories.length === 0 ? (
+            <EmptyState 
+              title="No Categories Available" 
+              message="No categories are currently published in the Ecwid store." 
+            />
+          ) : (
+            <div className="category-grid">
+              {displayedCategories.map((cat) => (
+                <div 
+                  key={cat.id} 
+                  className="category-card-horizontal" 
+                  style={{ backgroundColor: cat.bgColor }}
+                  onClick={() => navigate(cat.link)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(cat.link);
+                    }
+                  }}
+                >
+                  <div className="cat-img-wrap">
+                    <img src={cat.image} alt={cat.title} className="cat-img-thumb" />
+                  </div>
+                  <div className="cat-content">
+                    <h3 className="cat-title">{cat.title}</h3>
+                    <p className="cat-subtitle">{cat.subtitle}</p>
+                    <Link to={cat.link} className="cat-link" onClick={(e) => e.stopPropagation()}>
+                      <span>Shop Now</span>
+                      <span className="cat-arrow">→</span>
+                    </Link>
+                  </div>
                 </div>
-                <div className="cat-content">
-                  <h3 className="cat-title">{cat.title}</h3>
-                  <p className="cat-subtitle">{cat.subtitle}</p>
-                  <Link to={cat.link} className="cat-link" onClick={(e) => e.stopPropagation()}>
-                    <span>Shop Now</span>
-                    <span className="cat-arrow">→</span>
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Container>
       </section>
 
-      {/* Bestselling Products: ONLY products visible, clicking navigates to Product Details */}
+      {/* Bestselling Products: Powered dynamically by Ecwid live data */}
       <section className="bestsellers-section" id="bestsellers-section">
         <Container>
           <div className="bestsellers-header-row">
@@ -265,105 +390,147 @@ const Home = () => {
             </Link>
           </div>
 
-          {/* Products Grid / Slider */}
-          <div className="bestsellers-carousel-wrapper">
-            <button 
-              className="carousel-nav-btn prev-btn" 
-              onClick={prevSlide}
-              aria-label="Previous products"
-            >
-              <ChevronLeft size={22} />
-            </button>
-
-            <div className="products-showcase-grid">
-              {BESTSELLING_PRODUCTS.map((product) => {
-                const wishlisted = isWishlisted(product.id);
-
-                return (
-                  <div 
-                    key={product.id}
-                    className="product-card"
-                    onClick={() => handleProductClick(product.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleProductClick(product.id);
-                    }}
+          {productsLoading ? (
+            <LoadingState message="Loading live products from Ecwid..." />
+          ) : productsError ? (
+            <ErrorState 
+              title="Unable to Load Products" 
+              message={productsError} 
+              onRetry={refetchProducts} 
+            />
+          ) : featuredProducts.length === 0 ? (
+            <EmptyState 
+              title="No Products Available" 
+              message="There are currently no products available in the Ecwid catalog." 
+              actionText="Visit Store"
+              onAction={() => navigate('/store')}
+            />
+          ) : (
+            <>
+              {/* Products Grid / Slider */}
+              <div className="bestsellers-carousel-wrapper">
+                {numSlides > 1 && (
+                  <button 
+                    className="carousel-nav-btn prev-btn" 
+                    onClick={prevSlide}
+                    aria-label="Previous products"
                   >
-                    {/* Top Badges and Wishlist */}
-                    <div className="product-card-top">
-                      {product.badge && (
-                        <span className="product-bestseller-badge">
-                          {product.badge}
-                        </span>
-                      )}
-                      <button 
-                        className={`product-wishlist-toggle ${wishlisted ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleWishlist(product.id);
+                    <ChevronLeft size={22} />
+                  </button>
+                )}
+
+                <div className="products-showcase-grid">
+                  {displayedProducts.map((product) => {
+                    const wishlisted = isWishlisted(product.id);
+                    const badgeText = product.ribbon?.text || (product.discountPercent ? `${product.discountPercent}% OFF` : null);
+
+                    return (
+                      <div 
+                        key={product.id}
+                        className="product-card"
+                        onClick={() => handleProductClick(product.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleProductClick(product.id);
                         }}
-                        aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
                       >
-                        <Heart 
-                          size={18} 
-                          fill={wishlisted ? '#E63946' : 'none'} 
-                          color={wishlisted ? '#E63946' : '#2C4A3B'} 
-                        />
-                      </button>
-                    </div>
+                        {/* Top Badges and Wishlist */}
+                        <div className="product-card-top">
+                          {badgeText && (
+                            <span 
+                              className="product-bestseller-badge"
+                              style={product.ribbon?.color ? { backgroundColor: product.ribbon.color } : undefined}
+                            >
+                              {badgeText}
+                            </span>
+                          )}
+                          <button 
+                            className={`product-wishlist-toggle ${wishlisted ? 'active' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleWishlist(product.id);
+                            }}
+                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                          >
+                            <Heart 
+                              size={18} 
+                              fill={wishlisted ? '#E63946' : 'none'} 
+                              color={wishlisted ? '#E63946' : '#2C4A3B'} 
+                            />
+                          </button>
+                        </div>
 
-                    {/* Product Image */}
-                    <div className="product-img-holder">
-                      <img 
-                        src={product.image} 
-                        alt={product.name} 
-                        className="product-card-img"
-                        loading="lazy"
-                      />
-                    </div>
+                        {/* Product Image */}
+                        <div className="product-img-holder">
+                          <img 
+                            src={product.image} 
+                            alt={product.name} 
+                            className="product-card-img"
+                            loading="lazy"
+                          />
+                        </div>
 
-                    {/* Product Info */}
-                    <div className="product-info-wrapper">
-                      <h3 className="product-card-name">{product.name}</h3>
-                      <div className="product-card-price">₹{product.price}</div>
+                        {/* Product Info */}
+                        <div className="product-info-wrapper">
+                          <h3 className="product-card-name">{product.name}</h3>
+                          
+                          <div className="product-card-price-row">
+                            <span className="product-card-price">₹{product.price}</span>
+                            {product.compareToPrice && (
+                              <span className="product-card-compare-price">₹{product.compareToPrice}</span>
+                            )}
+                            {product.discountPercent && (
+                              <span className="product-card-discount-badge">{product.discountPercent}% OFF</span>
+                            )}
+                          </div>
 
-                      <button 
-                        className="product-add-cart-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleProductClick(product.id);
-                        }}
-                        aria-label={`View ${product.name}`}
-                      >
-                        <span>View Product</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                          {!product.inStock && (
+                            <span className="product-card-out-of-stock">Out of Stock</span>
+                          )}
 
-            <button 
-              className="carousel-nav-btn next-btn" 
-              onClick={nextSlide}
-              aria-label="Next products"
-            >
-              <ChevronRight size={22} />
-            </button>
-          </div>
+                          <button 
+                            className="product-add-cart-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleProductClick(product.id);
+                            }}
+                            aria-label={`View ${product.name}`}
+                          >
+                            <span>View Product</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-          {/* Dots Indicator */}
-          <div className="carousel-dots-row" aria-hidden="true">
-            {BESTSELLING_PRODUCTS.map((_, idx) => (
-              <button 
-                key={idx}
-                className={`carousel-dot ${activeSlide === idx ? 'active' : ''}`}
-                onClick={() => setActiveSlide(idx)}
-                aria-label={`Slide ${idx + 1}`}
-              />
-            ))}
-          </div>
+                {numSlides > 1 && (
+                  <button 
+                    className="carousel-nav-btn next-btn" 
+                    onClick={nextSlide}
+                    aria-label="Next products"
+                  >
+                    <ChevronRight size={22} />
+                  </button>
+                )}
+              </div>
+
+              {/* Dots Indicator */}
+              {numSlides > 1 && (
+                <div className="carousel-dots-row" aria-label="Slider navigation">
+                  {Array.from({ length: numSlides }).map((_, idx) => (
+                    <button 
+                      key={idx}
+                      className={`carousel-dot ${safeSlide === idx ? 'active' : ''}`}
+                      onClick={() => setActiveSlide(idx)}
+                      aria-label={`Slide ${idx + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </Container>
       </section>
 

@@ -2,7 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Heart, ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import Container from '../../components/UI/Container/Container';
-import { ALL_PRODUCTS, CATEGORY_TABS } from '../../data/products';
+import { CATEGORY_TABS } from '../../data/products';
+import { useEcwidProducts } from '../../hooks/useEcwidProducts';
+import LoadingState from '../../components/LoadingState/LoadingState';
+import ErrorState from '../../components/ErrorState/ErrorState';
 import { useCart } from '../../context/CartContext';
 import heroProductsImg from '../../assets/hero_products_mobile.png';
 import './Store.css';
@@ -11,6 +14,7 @@ const Store = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toggleWishlist, isWishlisted } = useCart();
+  const { products, loading, error, refetch } = useEcwidProducts();
 
   // Category filter from URL params (e.g. ?category=neem) or default 'all'
   const activeCategory = searchParams.get('category') || 'all';
@@ -28,26 +32,35 @@ const Store = () => {
     }
   };
 
-  // Filter products based on active category & search query
+  // Filter live Ecwid products based on active category & search query
   const filteredProducts = useMemo(() => {
-    return ALL_PRODUCTS.filter((product) => {
+    if (!products || !Array.isArray(products)) return [];
+    return products.filter((product) => {
       // Category match
+      const currentTab = CATEGORY_TABS.find((t) => t.id === activeCategory);
+      const targetCategoryId = currentTab?.categoryId;
+
       const matchesCategory =
         activeCategory === 'all' ||
         product.categoryType === activeCategory ||
-        product.categoryId === activeCategory;
+        product.categoryId === activeCategory ||
+        String(product.categoryId) === String(activeCategory) ||
+        (Array.isArray(product.categoryIds) && product.categoryIds.includes(Number(activeCategory))) ||
+        (targetCategoryId && Array.isArray(product.categoryIds) && product.categoryIds.includes(Number(targetCategoryId)));
 
       // Search match
       const query = searchQuery.trim().toLowerCase();
       const matchesSearch =
         !query ||
-        product.name.toLowerCase().includes(query) ||
-        product.categoryTag.toLowerCase().includes(query) ||
-        product.shortDesc.toLowerCase().includes(query);
+        (product.name && product.name.toLowerCase().includes(query)) ||
+        (product.categoryTag && product.categoryTag.toLowerCase().includes(query)) ||
+        (product.categoryName && product.categoryName.toLowerCase().includes(query)) ||
+        (product.sku && product.sku.toLowerCase().includes(query)) ||
+        (product.description && product.description.toLowerCase().includes(query));
 
       return matchesCategory && matchesSearch;
     });
-  }, [activeCategory, searchQuery]);
+  }, [products, activeCategory, searchQuery]);
 
   // Pagination calculation
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
@@ -187,8 +200,16 @@ const Store = () => {
             </div>
           </div>
 
-          {/* Product Cards Grid (4 columns) */}
-          {paginatedProducts.length > 0 ? (
+          {/* Product Cards Grid (4 columns) / Loading / Error */}
+          {loading ? (
+            <LoadingState message="Loading live products from Ecwid..." />
+          ) : error ? (
+            <ErrorState
+              title="Unable to Load Catalog"
+              message={error}
+              onRetry={refetch}
+            />
+          ) : paginatedProducts.length > 0 ? (
             <div className="store-product-grid">
               {paginatedProducts.map((product) => {
                 const wishlisted = isWishlisted(product.id);
@@ -238,8 +259,23 @@ const Store = () => {
                     {/* Product Metadata */}
                     <div className="card-content">
                       <h3 className="card-product-name">{product.name}</h3>
-                      <span className="card-category-label">{product.categoryTag}</span>
-                      <div className="card-price">₹{product.price}</div>
+                      <span className="card-category-label">
+                        {product.categoryTag || product.categoryName}
+                      </span>
+                      
+                      <div className="card-price-row">
+                        <span className="card-price">₹{product.price}</span>
+                        {product.compareToPrice && (
+                          <span className="card-compare-price">₹{product.compareToPrice}</span>
+                        )}
+                        {product.discountPercent && (
+                          <span className="card-discount-badge">{product.discountPercent}% OFF</span>
+                        )}
+                      </div>
+
+                      {!product.inStock && (
+                        <span className="card-out-of-stock-badge">Out of Stock</span>
+                      )}
                     </div>
 
                     {/* Action Button */}

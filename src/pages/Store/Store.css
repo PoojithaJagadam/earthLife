@@ -378,11 +378,44 @@
   margin-bottom: 0.35rem;
 }
 
+.card-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .card-price {
   font-family: var(--font-heading, 'Outfit', sans-serif);
   font-size: 1.15rem;
   font-weight: 700;
   color: #1E3A2B;
+}
+
+.card-compare-price {
+  font-size: 0.85rem;
+  color: #8C9992;
+  text-decoration: line-through;
+}
+
+.card-discount-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #C05621;
+  background-color: #FEEBC8;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.card-out-of-stock-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #9B2C2C;
+  background-color: #FED7D7;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  align-self: flex-start;
+  margin-top: 0.25rem;
 }
 
 /* View Product Button */
