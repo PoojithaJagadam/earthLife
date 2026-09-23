@@ -3,6 +3,7 @@ import { Link, NavLink } from 'react-router-dom';
 import { Search, User, ShoppingCart } from 'lucide-react';
 import Container from '../UI/Container/Container';
 import logoImg from '../../assets/logo.png';
+import RandomLetterSwap from '../UI/RandomLetterSwap/RandomLetterSwap';
 import { useCart } from '../../context/CartContext';
 import { useEcwidAccount } from '../../hooks/useEcwidAccount';
 import './Header.css';
@@ -22,22 +23,22 @@ const Header = () => {
         
         <nav className="nav-links hide-on-mobile">
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
-            Home
+            <RandomLetterSwap text="Home" staggerDuration={0.025} duration={0.45} />
           </NavLink>
           <NavLink to="/store" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Store
+            <RandomLetterSwap text="Store" staggerDuration={0.025} duration={0.45} />
           </NavLink>
           <NavLink to="/why-natural" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Why Natural?
+            <RandomLetterSwap text="Why Natural?" staggerDuration={0.025} duration={0.45} />
           </NavLink>
           <NavLink to="/about" className={({ isActive }) => (isActive ? 'active' : '')}>
-            About EarthLife Co.
+            <RandomLetterSwap text="About EarthLife Co." staggerDuration={0.02} duration={0.45} />
           </NavLink>
           <NavLink to="/faqs" className={({ isActive }) => (isActive ? 'active' : '')}>
-            FAQs
+            <RandomLetterSwap text="FAQs" staggerDuration={0.025} duration={0.45} />
           </NavLink>
           <NavLink to="/contact" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Contact
+            <RandomLetterSwap text="Contact" staggerDuration={0.025} duration={0.45} />
           </NavLink>
         </nav>
         

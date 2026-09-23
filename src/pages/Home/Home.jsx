@@ -433,7 +433,7 @@ const Home = () => {
                     return (
                       <div 
                         key={product.id}
-                        className="product-card"
+                        className="product-card botanical-glow-card"
                         onClick={() => handleProductClick(product.id)}
                         role="button"
                         tabIndex={0}
