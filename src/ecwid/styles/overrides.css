@@ -158,12 +158,32 @@
 
 /* ACCOUNT LOGIN STYLING */
 .account-login-page .ec-size .ec-store .ec-form--signin .form-control--text,
-.account-login-page .ec-size .ec-store .ec-form--signin .form-control--password,
+.account-login-page .ec-size .ec-store .ec-form--signin .form-control--password {
+  display: block !important;
+  border-radius: 8px !important;
+  border: 1px solid #D1D5DB !important;
+  padding: 0.75rem 1rem !important;
+  font-family: var(--font-body) !important;
+  font-size: 1rem !important;
+}
 .account-login-page .ec-size .ec-store .ec-form--signin .ec-form__row--actions button[type="submit"] {
-  display: none !important;
+  display: inline-block !important;
+  background-color: var(--color-primary) !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  padding: 0.85rem 1.5rem !important;
+  font-weight: 600 !important;
+  font-family: var(--font-heading) !important;
+  border: none !important;
+  width: 100% !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s ease !important;
+}
+.account-login-page .ec-size .ec-store .ec-form--signin .ec-form__row--actions button[type="submit"]:hover {
+  background-color: var(--color-primary-light) !important;
 }
 .account-login-page .ec-size .ec-store .ec-form--signin {
-  margin-top: 2rem;
+  margin-top: 1rem;
 }
 .account-login-page .ec-size .ec-store .ec-form__row--sso {
   display: block !important;
@@ -204,5 +224,57 @@
   color: var(--color-error-text) !important;
   border-radius: var(--radius-pill) !important;
   padding: 0.25rem 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+/* AUTHORIZATION WIDGET & ACCESS CODE STYLING */
+.ec-size .ec-store .authorization-widget,
+.ec-size .ec-store .ec-form--signin,
+.authorization-widget {
+  font-family: var(--font-body, 'Inter', sans-serif) !important;
+}
+
+.ec-size .ec-store .authorization-widget__submit-button,
+.ec-size .ec-store .authorization-widget__submit-code-button,
+.authorization-widget__submit-button,
+.authorization-widget__submit-code-button {
+  background-color: #1E3A2B !important;
+  color: #FFFFFF !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  padding: 0.75rem 1.5rem !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s ease !important;
+}
+
+.ec-size .ec-store .authorization-widget__submit-button:hover,
+.ec-size .ec-store .authorization-widget__submit-code-button:hover,
+.authorization-widget__submit-button:hover,
+.authorization-widget__submit-code-button:hover {
+  background-color: #2D5540 !important;
+}
+
+.ec-size .ec-store .authorization-widget__email-field input,
+.ec-size .ec-store .authorization-widget__code-field input,
+.authorization-widget__email-field input,
+.authorization-widget__code-field input {
+  border: 1px solid #D1D5DB !important;
+  border-radius: 8px !important;
+  padding: 0.75rem 1rem !important;
+  font-size: 0.95rem !important;
+}
+
+/* ECWID ADDRESS BOOK & ACCOUNT SETTINGS STYLING */
+.ec-size .ec-store .ec-address-book,
+.ec-size .ec-store .ec-account-settings {
+  font-family: var(--font-body, 'Inter', sans-serif) !important;
+}
+
+.ec-size .ec-store .ec-address-book .form-control--button,
+.ec-size .ec-store .ec-account-settings .form-control--button {
+  background-color: #1E3A2B !important;
+  color: #FFFFFF !important;
+  border-radius: 8px !important;
   font-weight: 600 !important;
 }

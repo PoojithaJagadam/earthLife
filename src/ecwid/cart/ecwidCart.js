@@ -193,22 +193,33 @@ export async function calculateEcwidOrder(items, couponCode = null, shippingAddr
       body: JSON.stringify(payload)
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        subtotal: data.subtotal ?? 0,
-        subtotalWithoutTax: data.subtotalWithoutTax ?? 0,
-        total: data.total ?? 0,
-        totalWithoutTax: data.totalWithoutTax ?? 0,
-        tax: data.tax ?? 0,
-        taxes: data.taxes || [],
-        shipping: data.shipping ?? 0,
-        discount: data.discount ?? 0,
-        couponDiscount: data.couponDiscount ?? 0,
-        volumeDiscount: data.volumeDiscount ?? 0,
-        couponError: data.couponError || null,
-        items: data.items || []
-      };
+    if (response && response.ok) {
+      let data = null;
+      try {
+        const text = await response.text();
+        if (text && text.trim() && text.trim() !== 'undefined') {
+          data = JSON.parse(text);
+        }
+      } catch (parseErr) {
+        console.warn('Failed to parse Ecwid calculate response:', parseErr);
+      }
+
+      if (data) {
+        return {
+          subtotal: typeof data.subtotal === 'number' ? data.subtotal : (data.subtotal ?? 0),
+          subtotalWithoutTax: typeof data.subtotalWithoutTax === 'number' ? data.subtotalWithoutTax : (data.subtotalWithoutTax ?? 0),
+          total: typeof data.total === 'number' ? data.total : (data.total ?? 0),
+          totalWithoutTax: typeof data.totalWithoutTax === 'number' ? data.totalWithoutTax : (data.totalWithoutTax ?? 0),
+          tax: typeof data.tax === 'number' ? data.tax : (data.tax ?? 0),
+          taxes: Array.isArray(data.taxes) ? data.taxes : [],
+          shipping: typeof data.shipping === 'number' ? data.shipping : (data.shipping ?? 0),
+          discount: typeof data.discount === 'number' ? data.discount : (data.discount ?? 0),
+          couponDiscount: typeof data.couponDiscount === 'number' ? data.couponDiscount : (data.couponDiscount ?? 0),
+          volumeDiscount: typeof data.volumeDiscount === 'number' ? data.volumeDiscount : (data.volumeDiscount ?? 0),
+          couponError: data.couponError || null,
+          items: Array.isArray(data.items) ? data.items : []
+        };
+      }
     }
   } catch (err) {
     console.error('Error calculating Ecwid order totals:', err);
@@ -367,4 +378,49 @@ export async function clearEcwidCart() {
 
   saveCartItems([]);
   return [];
+}
+
+/**
+ * Synchronize all current items directly to the Ecwid Storefront Cart session
+ */
+export async function syncCartToEcwidStorefront(items) {
+  await ensureEcwidLoaded();
+  if (typeof window === 'undefined' || !window.Ecwid || !window.Ecwid.Cart) return;
+
+  return new Promise((resolve) => {
+    try {
+      if (typeof window.Ecwid.Cart.clear === 'function') {
+        window.Ecwid.Cart.clear(() => {
+          if (!items || items.length === 0) {
+            resolve();
+            return;
+          }
+
+          let remaining = items.length;
+          const onDone = () => {
+            remaining--;
+            if (remaining <= 0) resolve();
+          };
+
+          items.forEach((it) => {
+            try {
+              window.Ecwid.Cart.addProduct({
+                id: Number(it.productId || it.id),
+                quantity: Math.max(1, Number(it.quantity || 1)),
+                options: it.options && Object.keys(it.options).length > 0 ? it.options : undefined
+              }, () => onDone());
+            } catch (addErr) {
+              console.warn('Ecwid Cart.addProduct error during sync:', addErr);
+              onDone();
+            }
+          });
+        });
+      } else {
+        resolve();
+      }
+    } catch (e) {
+      console.warn('Failed to sync items to Ecwid storefront cart:', e);
+      resolve();
+    }
+  });
 }

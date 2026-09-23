@@ -444,36 +444,17 @@ export async function handleEcwidApi(req, res) {
       });
 
       if (calcRes.ok) {
-        const calcData = await calcRes.json();
-        res.statusCode = 200;
-        return res.end(JSON.stringify({
-          storeId,
-          source: 'ecwid_live_api',
-          subtotal: typeof calcData.subtotal === 'number' ? calcData.subtotal : 0,
-          subtotalWithoutTax: typeof calcData.subtotalWithoutTax === 'number' ? calcData.subtotalWithoutTax : 0,
-          total: typeof calcData.total === 'number' ? calcData.total : 0,
-          totalWithoutTax: typeof calcData.totalWithoutTax === 'number' ? calcData.totalWithoutTax : 0,
-          tax: typeof calcData.tax === 'number' ? calcData.tax : 0,
-          taxes: Array.isArray(calcData.taxes) ? calcData.taxes : [],
-          shipping: typeof calcData.shipping === 'number' ? calcData.shipping : 0,
-          discount: typeof calcData.discount === 'number' ? calcData.discount : 0,
-          couponDiscount: typeof calcData.couponDiscount === 'number' ? calcData.couponDiscount : 0,
-          volumeDiscount: typeof calcData.volumeDiscount === 'number' ? calcData.volumeDiscount : 0,
-          items: Array.isArray(calcData.items) ? calcData.items : [],
-          raw: calcData
-        }));
-      }
+        let calcData = null;
+        try {
+          const text = await calcRes.text();
+          if (text && text.trim() && text.trim() !== 'undefined') {
+            calcData = JSON.parse(text);
+          }
+        } catch (e) {
+          console.error('Failed to parse Ecwid order calculate response:', e);
+        }
 
-      // Fallback: If Ecwid order/calculate rejects an invalid coupon or param, retry without coupon
-      if (couponCode) {
-        delete ecwidCalcPayload.couponCode;
-        const retryRes = await fetchWithRetry(calcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify(ecwidCalcPayload)
-        });
-        if (retryRes.ok) {
-          const calcData = await retryRes.json();
+        if (calcData) {
           res.statusCode = 200;
           return res.end(JSON.stringify({
             storeId,
@@ -485,13 +466,54 @@ export async function handleEcwidApi(req, res) {
             tax: typeof calcData.tax === 'number' ? calcData.tax : 0,
             taxes: Array.isArray(calcData.taxes) ? calcData.taxes : [],
             shipping: typeof calcData.shipping === 'number' ? calcData.shipping : 0,
-            discount: 0,
-            couponDiscount: 0,
-            volumeDiscount: 0,
-            couponError: 'Invalid coupon code',
+            discount: typeof calcData.discount === 'number' ? calcData.discount : 0,
+            couponDiscount: typeof calcData.couponDiscount === 'number' ? calcData.couponDiscount : 0,
+            volumeDiscount: typeof calcData.volumeDiscount === 'number' ? calcData.volumeDiscount : 0,
             items: Array.isArray(calcData.items) ? calcData.items : [],
             raw: calcData
           }));
+        }
+      }
+
+      // Fallback: If Ecwid order/calculate rejects an invalid coupon or param, retry without coupon
+      if (couponCode) {
+        delete ecwidCalcPayload.couponCode;
+        const retryRes = await fetchWithRetry(calcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(ecwidCalcPayload)
+        });
+        if (retryRes.ok) {
+          let calcData = null;
+          try {
+            const text = await retryRes.text();
+            if (text && text.trim() && text.trim() !== 'undefined') {
+              calcData = JSON.parse(text);
+            }
+          } catch (e) {
+            console.error('Failed to parse Ecwid retry calculate response:', e);
+          }
+
+          if (calcData) {
+            res.statusCode = 200;
+            return res.end(JSON.stringify({
+              storeId,
+              source: 'ecwid_live_api',
+              subtotal: typeof calcData.subtotal === 'number' ? calcData.subtotal : 0,
+              subtotalWithoutTax: typeof calcData.subtotalWithoutTax === 'number' ? calcData.subtotalWithoutTax : 0,
+              total: typeof calcData.total === 'number' ? calcData.total : 0,
+              totalWithoutTax: typeof calcData.totalWithoutTax === 'number' ? calcData.totalWithoutTax : 0,
+              tax: typeof calcData.tax === 'number' ? calcData.tax : 0,
+              taxes: Array.isArray(calcData.taxes) ? calcData.taxes : [],
+              shipping: typeof calcData.shipping === 'number' ? calcData.shipping : 0,
+              discount: 0,
+              couponDiscount: 0,
+              volumeDiscount: 0,
+              couponError: 'Invalid coupon code',
+              items: Array.isArray(calcData.items) ? calcData.items : [],
+              raw: calcData
+            }));
+          }
         }
       }
 
@@ -572,6 +594,114 @@ export async function handleEcwidApi(req, res) {
           supported: false,
           error: err.message,
           addresses: []
+        }));
+      }
+    }
+
+    // 5b. POST /api/ecwid/customer/update - Real Ecwid Customer Profile Update
+    if (cleanPath === '/api/ecwid/customer/update' && isPost) {
+      let bodyData = {};
+      if (req.body && typeof req.body === 'object') {
+        bodyData = req.body;
+      } else {
+        bodyData = await new Promise((resolve) => {
+          let buffer = '';
+          req.on('data', chunk => { buffer += chunk; });
+          req.on('end', () => {
+            try {
+              resolve(buffer ? JSON.parse(buffer) : {});
+            } catch {
+              resolve({});
+            }
+          });
+          req.on('error', () => resolve({}));
+        });
+      }
+
+      const { customerId, email, name, phone, acceptsMarketing } = bodyData;
+      const hasSecretToken = Boolean(process.env.ECWID_SECRET_TOKEN);
+
+      if (!hasSecretToken) {
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          success: false,
+          requiresStorefrontAction: true,
+          message: 'Direct REST API customer updates require an Ecwid Secret Token (ECWID_SECRET_TOKEN) with update_customers scope. Please use the official Ecwid Account Settings to update and save your profile.'
+        }));
+      }
+
+      try {
+        let targetId = customerId;
+        if (!targetId && email) {
+          // Look up customer ID by email
+          const searchUrl = `https://app.ecwid.com/api/v3/${storeId}/customers?token=${token}&email=${encodeURIComponent(email)}`;
+          const searchRes = await fetchWithRetry(searchUrl, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (searchRes.ok) {
+            const data = await searchRes.json();
+            if (data.items && data.items.length > 0) {
+              targetId = data.items[0].id;
+            }
+          }
+        }
+
+        if (!targetId) {
+          res.statusCode = 400;
+          return res.end(JSON.stringify({
+            success: false,
+            message: 'Customer ID or valid customer email is required.'
+          }));
+        }
+
+        const updatePayload = {};
+        if (name !== undefined) {
+          updatePayload.name = name;
+          updatePayload.billingPerson = { name };
+        }
+        if (phone !== undefined) {
+          updatePayload.contacts = [{ type: 'PHONE', value: phone }];
+          if (updatePayload.billingPerson) {
+            updatePayload.billingPerson.phone = phone;
+          }
+        }
+        if (typeof acceptsMarketing === 'boolean') {
+          updatePayload.acceptMarketing = acceptsMarketing;
+        }
+
+        const updateUrl = `https://app.ecwid.com/api/v3/${storeId}/customers/${targetId}?token=${token}`;
+        const updateRes = await fetchWithRetry(updateUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+
+        if (!updateRes.ok) {
+          const errText = await updateRes.text();
+          res.statusCode = updateRes.status;
+          return res.end(JSON.stringify({
+            success: false,
+            error: 'Failed to update customer in Ecwid',
+            details: errText
+          }));
+        }
+
+        const result = await updateRes.json();
+        res.statusCode = 200;
+        return res.end(JSON.stringify({
+          success: true,
+          message: 'Customer profile updated successfully in Ecwid.',
+          customer: result
+        }));
+      } catch (err) {
+        console.error('Customer update error:', err);
+        res.statusCode = 500;
+        return res.end(JSON.stringify({
+          success: false,
+          error: err.message
         }));
       }
     }
@@ -682,8 +812,15 @@ export async function handleEcwidApi(req, res) {
       }
 
       const isCOD = paymentMethod === 'cod' || paymentMethod === 'Pay by cash';
-      const ecwidPaymentTitle = isCOD ? 'Pay by cash' : 'Razorpay';
-      const ecwidPaymentStatus = isCOD ? 'AWAITING_PAYMENT' : 'INCOMPLETE';
+      if (!isCOD) {
+        res.statusCode = 400;
+        return res.end(JSON.stringify({
+          error: 'Online payment orders must proceed through the Ecwid native checkout session to verify payment before order creation.'
+        }));
+      }
+
+      const ecwidPaymentTitle = 'Pay by cash';
+      const ecwidPaymentStatus = 'AWAITING_PAYMENT';
 
       const ecwidItems = items.map((it) => {
         const selectedOptions = [];
@@ -765,7 +902,21 @@ export async function handleEcwidApi(req, res) {
         }));
       }
 
-      const orderResult = await orderRes.json();
+      let orderResult = null;
+      try {
+        const text = await orderRes.text();
+        if (text && text.trim() && text.trim() !== 'undefined') {
+          orderResult = JSON.parse(text);
+        }
+      } catch (e) {
+        console.error('Failed to parse Ecwid orderResult JSON:', e);
+      }
+
+      if (!orderResult) {
+        res.statusCode = 500;
+        return res.end(JSON.stringify({ error: 'Failed to create order in Ecwid', details: 'Empty or invalid response from Ecwid orders API.' }));
+      }
+
       res.statusCode = 200;
       return res.end(JSON.stringify({
         success: true,

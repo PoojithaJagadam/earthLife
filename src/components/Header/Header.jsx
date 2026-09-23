@@ -4,10 +4,12 @@ import { Search, User, ShoppingCart } from 'lucide-react';
 import Container from '../UI/Container/Container';
 import logoImg from '../../assets/logo.png';
 import { useCart } from '../../context/CartContext';
+import { useEcwidAccount } from '../../hooks/useEcwidAccount';
 import './Header.css';
 
 const Header = () => {
   const { cartCount } = useCart();
+  const { isLoggedIn, customer } = useEcwidAccount();
 
   return (
     <header className="header">
@@ -41,7 +43,15 @@ const Header = () => {
         
         <div className="header-actions">
           <Link to="/store#!/~/search" className="icon-btn" aria-label="Search"><Search size={20} /></Link>
-          <Link to="/account" className="icon-btn" aria-label="Account"><User size={20} /></Link>
+          <Link 
+            to="/account" 
+            className="icon-btn account-btn" 
+            aria-label={isLoggedIn ? `Account (${customer?.name || customer?.email})` : "Account"}
+            title={isLoggedIn ? `Signed in as ${customer?.name || customer?.email}` : "Account"}
+          >
+            <User size={20} />
+            {isLoggedIn && <span className="account-logged-in-indicator" />}
+          </Link>
           <Link to="/cart" className="icon-btn cart-btn" aria-label="Cart" id="header-cart-btn">
             <ShoppingCart size={20} />
             <span className="cart-badge">{cartCount}</span>

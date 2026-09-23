@@ -1,14 +1,40 @@
 import React, { useEffect, useRef } from 'react';
 
-const EcwidStore = () => {
-  const storeId = import.meta.env.VITE_ECWID_STORE_ID;
+const EcwidStore = ({ defaultPage, className = '', placeholderText }) => {
+  const storeId = import.meta.env.VITE_ECWID_STORE_ID || '141633269';
   const storeDiv = useRef(null);
 
+  const defaultPlaceholder = defaultPage?.startsWith('checkout')
+    ? 'Loading Ecwid Secure Checkout...'
+    : 'Loading Ecwid Store...';
+  const displayPlaceholder = placeholderText || defaultPlaceholder;
+
   useEffect(() => {
-    if (!storeId) {
-      console.error('Ecwid Store ID is missing in environment variables.');
-      return;
-    }
+    const initStore = () => {
+      if (window.xProductBrowser) {
+        window.xProductBrowser("id=my-store-" + storeId);
+      }
+      
+      const navigateToDefault = () => {
+        if (defaultPage && window.Ecwid && typeof window.Ecwid.openPage === 'function') {
+          try {
+            window.Ecwid.openPage(defaultPage);
+          } catch (e) {
+            console.warn('Ecwid openPage error:', e);
+          }
+        }
+      };
+
+      if (window.Ecwid && typeof window.Ecwid.openPage === 'function') {
+        navigateToDefault();
+        setTimeout(navigateToDefault, 200);
+      } else if (window.Ecwid?.OnAPILoaded?.add) {
+        window.Ecwid.OnAPILoaded.add(navigateToDefault);
+      } else {
+        setTimeout(navigateToDefault, 500);
+        setTimeout(navigateToDefault, 1200);
+      }
+    };
 
     // Load Ecwid Script if not already loaded
     if (!document.getElementById('ecwid-script')) {
@@ -24,41 +50,16 @@ const EcwidStore = () => {
       document.head.appendChild(script);
       
       script.onload = () => {
-        if (window.xProductBrowser) {
-          window.xProductBrowser("id=my-store-" + storeId);
-        }
+        initStore();
       };
     } else {
-      // If script is already loaded, just inject the storefront
-      if (window.xProductBrowser) {
-        window.xProductBrowser("id=my-store-" + storeId);
-      }
+      initStore();
     }
-  }, [storeId]);
-
-  if (!storeId) {
-    return (
-      <div style={{
-        padding: '3rem 2rem',
-        textAlign: 'center',
-        background: '#FAF7F2',
-        borderRadius: '12px',
-        border: '1px dashed #D4A373',
-        margin: '2rem auto',
-        maxWidth: '600px'
-      }}>
-        <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🍃</div>
-        <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'var(--color-primary)' }}>Ecwid Storefront</h3>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem', margin: 0 }}>
-          To display your live catalog and checkout, set <code>VITE_ECWID_STORE_ID</code> in your environment settings.
-        </p>
-      </div>
-    );
-  }
+  }, [storeId, defaultPage]);
 
   return (
-    <div id={`my-store-${storeId}`} ref={storeDiv}>
-      <p>Loading Store...</p>
+    <div id={`my-store-${storeId}`} ref={storeDiv} className={`ecwid-store-container ${className}`}>
+      <p style={{ textAlign: 'center', color: '#6B7280', padding: '2rem' }}>{displayPlaceholder}</p>
     </div>
   );
 };

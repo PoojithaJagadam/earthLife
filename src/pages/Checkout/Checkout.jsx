@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Mail,
   User,
@@ -28,6 +28,8 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
+import EcwidStore from '../../ecwid/storefront/EcwidStore';
+import { syncCartToEcwidStorefront } from '../../ecwid/cart/ecwidCart';
 import './Checkout.css';
 
 // Standard Indian States & Union Territories
@@ -83,14 +85,21 @@ const Checkout = () => {
     setCustomerEmail: setContextEmail
   } = useCart();
 
+  const [searchParams] = useSearchParams();
+
   // Current checkout step: 1 = Shipping/Address, 2 = Payment Review, 3 = Order Placed
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(() => {
+    return searchParams.get('mode') === 'native' ? 2 : 1;
+  });
 
   // Payment Selection & Processing States
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('razorpay'); // 'razorpay' (UPI/Cards) or 'cod'
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [completedOrder, setCompletedOrder] = useState(null);
+  const [showNativeEcwidCheckout, setShowNativeEcwidCheckout] = useState(() => {
+    return searchParams.get('mode') === 'native';
+  });
 
   // Customer Contact Email
   const [email, setEmail] = useState(() => {
@@ -166,6 +175,81 @@ const Checkout = () => {
       refreshTotals(cartItems, null, active);
     }
   }, [selectedAddressId, savedAddresses, cartItems, refreshTotals, setShippingAddress]);
+
+  // Listen for official Ecwid native order completion (fires ONLY after successful Razorpay payment)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let isSubscribed = true;
+
+    const onOrderPlacedListener = async (order) => {
+      if (!isSubscribed || !order) return;
+      console.log('Real Ecwid Order Placed event received:', order);
+
+      const activeAddr = savedAddresses.find((a) => a.id === selectedAddressId);
+      const verifiedAddress = activeAddr || (savedAddresses.length > 0 ? savedAddresses[0] : null);
+
+      const orderSummaryRecord = {
+        orderId: order.orderNumber || order.id || order.referenceTransactionId || 'ORD-ECWID',
+        id: order.id || order.orderNumber,
+        email: order.email || contextEmail || email || '',
+        total: order.total || cartTotals.total || cartTotals.subtotal,
+        subtotal: order.subtotal || cartTotals.subtotal,
+        shipping: order.shippingPerson?.shippingMethod || cartTotals.shipping || 0,
+        tax: order.tax || cartTotals.tax || 0,
+        paymentMethod: order.paymentMethod || 'UPI / Online Payment (Razorpay)',
+        paymentStatus: order.paymentStatus || 'PAID',
+        shippingAddress: order.shippingPerson || verifiedAddress,
+        items: Array.isArray(order.items) && order.items.length > 0
+          ? order.items.map((it) => ({
+              id: it.id,
+              name: it.name,
+              price: it.price,
+              quantity: it.quantity,
+              image: it.imageUrl || it.thumbnailUrl || ''
+            }))
+          : [...cartItems],
+        date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      };
+
+      setCompletedOrder(orderSummaryRecord);
+      setShowNativeEcwidCheckout(false);
+
+      // ONLY clear the cart once payment & order are confirmed!
+      await clearCart();
+      setCurrentStep(3);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const attachListener = () => {
+      if (window.Ecwid && window.Ecwid.OnOrderPlaced && typeof window.Ecwid.OnOrderPlaced.add === 'function') {
+        try {
+          window.Ecwid.OnOrderPlaced.add(onOrderPlacedListener);
+        } catch (e) {
+          console.warn('Could not attach OnOrderPlaced listener:', e);
+        }
+      }
+    };
+
+    if (window.Ecwid && window.Ecwid.OnOrderPlaced) {
+      attachListener();
+    } else {
+      const timer = setInterval(() => {
+        if (window.Ecwid && window.Ecwid.OnOrderPlaced) {
+          clearInterval(timer);
+          attachListener();
+        }
+      }, 500);
+      return () => {
+        isSubscribed = false;
+        clearInterval(timer);
+      };
+    }
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [cartItems, cartTotals, clearCart, contextEmail, email, savedAddresses, selectedAddressId]);
 
   // Handle opening modal for adding new address
   const handleOpenAddModal = () => {
@@ -388,7 +472,7 @@ const Checkout = () => {
           // ignore
         }
       } else {
-        alert('Please select or add a shipping address before continuing.');
+        setFormErrors((prev) => ({ ...prev, address: 'Please select or add a shipping address before continuing.' }));
         return;
       }
     }
@@ -430,73 +514,88 @@ const Checkout = () => {
         return;
       }
 
-      const orderPayload = {
-        items: cartItems,
-        customer: { email: email.trim() },
-        shippingAddress: verifiedAddress,
-        paymentMethod: selectedPaymentMethod === 'cod' ? 'cod' : 'razorpay',
-        totals: {
-          subtotal: cartTotals.subtotal,
-          total: cartTotals.total || cartTotals.subtotal,
-          tax: cartTotals.tax || 0,
-          shipping: cartTotals.shipping || 0,
-          discount: cartTotals.discount || 0
-        }
-      };
-
-      const res = await fetch('/api/ecwid/order/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(orderPayload)
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || data.details || 'Failed to place order in Ecwid. Please try again.');
-      }
-
-      // Success! Order confirmed in Ecwid store
-      const orderSummaryRecord = {
-        orderId: data.orderId || data.id,
-        id: data.id,
-        email: email.trim(),
-        total: cartTotals.total || cartTotals.subtotal,
-        subtotal: cartTotals.subtotal,
-        shipping: cartTotals.shipping || 0,
-        tax: cartTotals.tax || 0,
-        paymentMethod: selectedPaymentMethod === 'cod' ? 'Cash on Delivery (COD)' : 'UPI / Online Payment (Razorpay)',
-        paymentStatus: data.paymentStatus || (selectedPaymentMethod === 'cod' ? 'AWAITING_PAYMENT' : 'INCOMPLETE'),
-        shippingAddress: verifiedAddress,
-        items: [...cartItems],
-        date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-      };
-
-      setCompletedOrder(orderSummaryRecord);
-
-      // If Razorpay was chosen and storefront SDK is active, trigger Ecwid's payment page
-      if (selectedPaymentMethod === 'razorpay') {
-        if (typeof window !== 'undefined' && window.Ecwid && typeof window.Ecwid.openPage === 'function') {
-          try {
-            window.Ecwid.openPage('checkout/payment');
-          } catch (err) {
-            console.warn('Ecwid.openPage trigger note:', err);
+      // 1. CASH ON DELIVERY (COD) FLOW
+      // Preserved exactly as requested: creates real Ecwid order, clears cart, shows confirmation
+      if (selectedPaymentMethod === 'cod') {
+        const orderPayload = {
+          items: cartItems,
+          customer: { email: email.trim() },
+          shippingAddress: verifiedAddress,
+          paymentMethod: 'cod',
+          totals: {
+            subtotal: cartTotals.subtotal,
+            total: cartTotals.total || cartTotals.subtotal,
+            tax: cartTotals.tax || 0,
+            shipping: cartTotals.shipping || 0,
+            discount: cartTotals.discount || 0
           }
+        };
+
+        const res = await fetch('/api/ecwid/order/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(orderPayload)
+        });
+
+        let data = null;
+        try {
+          const text = await res.text();
+          if (text && text.trim() && text.trim() !== 'undefined') {
+            data = JSON.parse(text);
+          }
+        } catch (parseErr) {
+          console.error('Failed to parse Ecwid order response:', parseErr);
         }
+
+        if (!res.ok || !data || !data.success) {
+          throw new Error(data?.error || data?.details || 'Failed to place order in Ecwid. Please try again.');
+        }
+
+        const orderSummaryRecord = {
+          orderId: data.orderId || data.id,
+          id: data.id,
+          email: email.trim(),
+          total: cartTotals.total || cartTotals.subtotal,
+          subtotal: cartTotals.subtotal,
+          shipping: cartTotals.shipping || 0,
+          tax: cartTotals.tax || 0,
+          paymentMethod: 'Cash on Delivery (COD)',
+          paymentStatus: data.paymentStatus || 'AWAITING_PAYMENT',
+          shippingAddress: verifiedAddress,
+          items: [...cartItems],
+          date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        };
+
+        setCompletedOrder(orderSummaryRecord);
+
+        // Clear authoritative cart
+        await clearCart();
+
+        // Proceed to Step 3: Order Placed
+        setCurrentStep(3);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
       }
 
-      // Clear authoritative cart
-      await clearCart();
-
-      // Proceed to Step 3: Order Placed
-      setCurrentStep(3);
+      // 2. ONLINE PAYMENT (RAZORPAY) FLOW
+      // DO NOT call /api/ecwid/order/create before payment
+      // DO NOT create an INCOMPLETE order
+      // DO NOT clear the cart before payment
+      // DO NOT show confirmation before payment
+      //
+      // Instead:
+      // EarthLife Cart -> real Ecwid native checkout/payment session
+      // -> configured Ecwid Razorpay payment app -> actual Razorpay payment
+      // -> Ecwid confirms payment/order -> then confirmation.
+      await syncCartToEcwidStorefront(cartItems);
+      setShowNativeEcwidCheckout(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      console.error('Order creation error:', err);
-      setPaymentError(err.message || 'An unexpected error occurred while placing your order. Please try again.');
+      console.error('Order processing error:', err);
+      setPaymentError(err.message || 'An unexpected error occurred while preparing your payment session. Please try again.');
     } finally {
       setIsProcessingPayment(false);
     }
@@ -1001,6 +1100,11 @@ const Checkout = () => {
                   )}
 
                   {/* Continue Button */}
+                  {formErrors.address && (
+                    <div className="checkout-field-error" style={{ marginBottom: '1rem', display: 'block', fontSize: '0.9rem' }}>
+                      {formErrors.address}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="checkout-continue-btn"
@@ -1015,215 +1119,275 @@ const Checkout = () => {
             ) : (
               /* Step 2 Payment Section */
               <div className="checkout-step2-wrapper" id="checkout-step-2-view">
-                {/* 1. Verified Contact & Shipping Delivery Preview */}
-                <div className="checkout-delivery-preview" id="checkout-verified-shipping-box">
-                  <div className="checkout-delivery-preview-content">
-                    <div className="checkout-delivery-preview-row">
-                      <span className="checkout-delivery-preview-label">Contact:</span>
-                      <span className="checkout-delivery-preview-val">{email}</span>
-                    </div>
-                    <div className="checkout-delivery-preview-row">
-                      <span className="checkout-delivery-preview-label">Ship to:</span>
-                      <span className="checkout-delivery-preview-val">
-                        {activeAddress ? (
-                          <>
-                            <strong>{activeAddress.name}</strong> • {activeAddress.street || activeAddress.address1}
-                            {activeAddress.address2 ? `, ${activeAddress.address2}` : ''}, {activeAddress.city}, {activeAddress.state} - {activeAddress.postalCode || activeAddress.pincode}
-                          </>
-                        ) : (
-                          'Delivery Address Selected'
-                        )}
-                      </span>
-                    </div>
-                    <div className="checkout-delivery-preview-row">
-                      <span className="checkout-delivery-preview-label">Method:</span>
-                      <span className="checkout-delivery-preview-val">
-                        Standard Eco Shipping ({cartTotals.shipping > 0 ? formatPrice(cartTotals.shipping) : 'FREE'})
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="checkout-delivery-preview-edit-btn"
-                    onClick={() => setCurrentStep(1)}
-                    title="Change shipping address"
-                    id="edit-shipping-address-btn"
+                {showNativeEcwidCheckout ? (
+                  <div
+                    className="checkout-native-ecwid-card"
+                    id="checkout-native-ecwid-container"
+                    style={{
+                      background: '#FFFFFF',
+                      borderRadius: '14px',
+                      border: '1px solid #ECE4D8',
+                      padding: '1.5rem',
+                      marginBottom: '2rem',
+                      boxShadow: '0 4px 14px rgba(0,0,0,0.03)'
+                    }}
                   >
-                    <Edit3 size={15} />
-                    <span>Change</span>
-                  </button>
-                </div>
-
-                {/* 2. Payment Method Card */}
-                <section className="checkout-section-card" aria-labelledby="payment-heading">
-                  <div className="checkout-section-header">
-                    <h2 className="checkout-section-title" id="payment-heading">
-                      <CreditCard size={20} />
-                      <span>Payment Method</span>
-                    </h2>
-                    <p className="checkout-section-desc">
-                      All transactions are secure, encrypted, and backed by authentic Ecwid store processing.
-                    </p>
-                  </div>
-
-                  {paymentError && (
                     <div
-                      className="checkout-error-banner"
                       style={{
                         display: 'flex',
+                        justifyContent: 'space-between',
                         alignItems: 'center',
-                        gap: '0.65rem',
-                        padding: '0.9rem 1.25rem',
-                        backgroundColor: '#FDEEE9',
-                        color: '#B3261E',
-                        borderRadius: '8px',
                         marginBottom: '1.25rem',
-                        fontSize: '0.9rem'
+                        paddingBottom: '1rem',
+                        borderBottom: '1px solid #ECE4D8',
+                        flexWrap: 'wrap',
+                        gap: '0.75rem'
                       }}
-                      role="alert"
                     >
-                      <AlertCircle size={18} />
-                      <span>{paymentError}</span>
+                      <button
+                        type="button"
+                        className="checkout-back-step-btn"
+                        style={{ margin: 0, padding: '0.5rem 0.9rem' }}
+                        onClick={() => setShowNativeEcwidCheckout(false)}
+                        id="back-to-payment-methods-btn"
+                      >
+                        <ArrowLeft size={16} />
+                        <span>Back to Payment Methods</span>
+                      </button>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.45rem',
+                          color: '#1E3A2B',
+                          fontWeight: 600,
+                          fontSize: '0.9rem'
+                        }}
+                      >
+                        <ShieldCheck size={18} style={{ color: '#2E7D32' }} />
+                        <span>Ecwid Secure Razorpay Payment Session</span>
+                      </div>
                     </div>
-                  )}
-
-                  <div className="checkout-payment-methods" role="radiogroup" aria-label="Select Payment Method">
-                    {/* Option 1: Razorpay / UPI */}
-                    <div
-                      className={`checkout-payment-option ${selectedPaymentMethod === 'razorpay' ? 'selected' : ''}`}
-                      onClick={() => setSelectedPaymentMethod('razorpay')}
-                      id="payment-option-razorpay"
-                      role="radio"
-                      aria-checked={selectedPaymentMethod === 'razorpay'}
-                      tabIndex={0}
-                    >
-                      <div className="checkout-payment-option-header">
-                        <div className="checkout-payment-radio">
-                          {selectedPaymentMethod === 'razorpay' && <div className="checkout-payment-radio-dot" />}
+                    <div style={{ minHeight: '450px' }}>
+                      <EcwidStore
+                        defaultPage="checkout/payment"
+                        placeholderText="Loading Ecwid Razorpay checkout session..."
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* 1. Verified Contact & Shipping Delivery Preview */}
+                    <div className="checkout-delivery-preview" id="checkout-verified-shipping-box">
+                      <div className="checkout-delivery-preview-content">
+                        <div className="checkout-delivery-preview-row">
+                          <span className="checkout-delivery-preview-label">Contact:</span>
+                          <span className="checkout-delivery-preview-val">{email}</span>
                         </div>
-                        <div className="checkout-payment-info">
-                          <div className="checkout-payment-title-row">
-                            <h3 className="checkout-payment-name">
-                              <Wallet size={18} />
-                              <span>UPI / Cards / Net Banking</span>
-                            </h3>
-                            <span className="checkout-payment-badge">Instant Confirmation</span>
-                          </div>
-                          <p className="checkout-payment-desc">
-                            Pay instantly using Google Pay, PhonePe, Paytm, BHIM UPI, Cards, or Net Banking powered by Razorpay.
-                          </p>
+                        <div className="checkout-delivery-preview-row">
+                          <span className="checkout-delivery-preview-label">Ship to:</span>
+                          <span className="checkout-delivery-preview-val">
+                            {activeAddress ? (
+                              <>
+                                <strong>{activeAddress.name}</strong> • {activeAddress.street || activeAddress.address1}
+                                {activeAddress.address2 ? `, ${activeAddress.address2}` : ''}, {activeAddress.city}, {activeAddress.state} - {activeAddress.postalCode || activeAddress.pincode}
+                              </>
+                            ) : (
+                              'Delivery Address Selected'
+                            )}
+                          </span>
+                        </div>
+                        <div className="checkout-delivery-preview-row">
+                          <span className="checkout-delivery-preview-label">Method:</span>
+                          <span className="checkout-delivery-preview-val">
+                            Standard Eco Shipping ({cartTotals.shipping > 0 ? formatPrice(cartTotals.shipping) : 'FREE'})
+                          </span>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        className="checkout-delivery-preview-edit-btn"
+                        onClick={() => setCurrentStep(1)}
+                        title="Change shipping address"
+                        id="edit-shipping-address-btn"
+                      >
+                        <Edit3 size={15} />
+                        <span>Change</span>
+                      </button>
+                    </div>
 
-                      {selectedPaymentMethod === 'razorpay' && (
-                        <div className="checkout-payment-expanded-box">
-                          <div className="checkout-upi-apps">
-                            <span className="checkout-upi-pill highlight">⚡ Instant UPI</span>
-                            <span className="checkout-upi-pill">Google Pay</span>
-                            <span className="checkout-upi-pill">PhonePe</span>
-                            <span className="checkout-upi-pill">Paytm</span>
-                            <span className="checkout-upi-pill">BHIM</span>
-                            <span className="checkout-upi-pill">Cards & Net Banking</span>
-                          </div>
-                          <p style={{ margin: 0, fontSize: '0.85rem', color: '#5A6B61', lineHeight: 1.45 }}>
-                            Zero convenience charges. Secure 256-bit bank verification via Razorpay & Ecwid.
-                          </p>
+                    {/* 2. Payment Method Card */}
+                    <section className="checkout-section-card" aria-labelledby="payment-heading">
+                      <div className="checkout-section-header">
+                        <h2 className="checkout-section-title" id="payment-heading">
+                          <CreditCard size={20} />
+                          <span>Payment Method</span>
+                        </h2>
+                        <p className="checkout-section-desc">
+                          All transactions are secure, encrypted, and backed by authentic Ecwid store processing.
+                        </p>
+                      </div>
+
+                      {paymentError && (
+                        <div
+                          className="checkout-error-banner"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.65rem',
+                            padding: '0.9rem 1.25rem',
+                            backgroundColor: '#FDEEE9',
+                            color: '#B3261E',
+                            borderRadius: '8px',
+                            marginBottom: '1.25rem',
+                            fontSize: '0.9rem'
+                          }}
+                          role="alert"
+                        >
+                          <AlertCircle size={18} />
+                          <span>{paymentError}</span>
                         </div>
                       )}
-                    </div>
 
-                    {/* Option 2: Cash on Delivery (COD) */}
-                    <div
-                      className={`checkout-payment-option ${selectedPaymentMethod === 'cod' ? 'selected' : ''}`}
-                      onClick={() => setSelectedPaymentMethod('cod')}
-                      id="payment-option-cod"
-                      role="radio"
-                      aria-checked={selectedPaymentMethod === 'cod'}
-                      tabIndex={0}
-                    >
-                      <div className="checkout-payment-option-header">
-                        <div className="checkout-payment-radio">
-                          {selectedPaymentMethod === 'cod' && <div className="checkout-payment-radio-dot" />}
-                        </div>
-                        <div className="checkout-payment-info">
-                          <div className="checkout-payment-title-row">
-                            <h3 className="checkout-payment-name">
-                              <Banknote size={18} />
-                              <span>Cash on Delivery (COD)</span>
-                            </h3>
-                            <span className="checkout-payment-badge cod">Pay at Doorstep</span>
-                          </div>
-                          <p className="checkout-payment-desc">
-                            Pay in cash to our courier partner when your package arrives at your doorstep.
-                          </p>
-                        </div>
-                      </div>
-
-                      {selectedPaymentMethod === 'cod' && (
-                        <div className="checkout-payment-expanded-box">
-                          <div className="checkout-cod-note">
-                            <Truck size={18} style={{ color: '#1E3A2B', flexShrink: 0, marginTop: '2px' }} />
-                            <div>
-                              <strong>Cash on Delivery Available:</strong>
-                              <br />
-                              Please keep the exact cash amount of{' '}
-                              <strong>{formatPrice(cartTotals.total || cartTotals.subtotal)}</strong> ready upon delivery
-                              for a smooth, contactless handover.
+                      <div className="checkout-payment-methods" role="radiogroup" aria-label="Select Payment Method">
+                        {/* Option 1: Razorpay / UPI */}
+                        <div
+                          className={`checkout-payment-option ${selectedPaymentMethod === 'razorpay' ? 'selected' : ''}`}
+                          onClick={() => setSelectedPaymentMethod('razorpay')}
+                          id="payment-option-razorpay"
+                          role="radio"
+                          aria-checked={selectedPaymentMethod === 'razorpay'}
+                          tabIndex={0}
+                        >
+                          <div className="checkout-payment-option-header">
+                            <div className="checkout-payment-radio">
+                              {selectedPaymentMethod === 'razorpay' && <div className="checkout-payment-radio-dot" />}
+                            </div>
+                            <div className="checkout-payment-info">
+                              <div className="checkout-payment-title-row">
+                                <h3 className="checkout-payment-name">
+                                  <Wallet size={18} />
+                                  <span>UPI / Cards / Net Banking</span>
+                                </h3>
+                                <span className="checkout-payment-badge">Instant Confirmation</span>
+                              </div>
+                              <p className="checkout-payment-desc">
+                                Pay instantly using Google Pay, PhonePe, Paytm, BHIM UPI, Cards, or Net Banking powered by Razorpay.
+                              </p>
                             </div>
                           </div>
+
+                          {selectedPaymentMethod === 'razorpay' && (
+                            <div className="checkout-payment-expanded-box">
+                              <div className="checkout-upi-apps">
+                                <span className="checkout-upi-pill highlight">⚡ Instant UPI</span>
+                                <span className="checkout-upi-pill">Google Pay</span>
+                                <span className="checkout-upi-pill">PhonePe</span>
+                                <span className="checkout-upi-pill">Paytm</span>
+                                <span className="checkout-upi-pill">BHIM</span>
+                                <span className="checkout-upi-pill">Cards & Net Banking</span>
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.85rem', color: '#5A6B61', lineHeight: 1.45 }}>
+                                Zero convenience charges. Secure 256-bit bank verification via Razorpay & Ecwid.
+                              </p>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Security reassurance banner */}
-                  <div className="checkout-security-notice">
-                    <ShieldCheck size={18} />
-                    <span>100% Secure Payment • 256-Bit SSL Encrypted • Real Ecwid Order Sync</span>
-                  </div>
+                        {/* Option 2: Cash on Delivery (COD) */}
+                        <div
+                          className={`checkout-payment-option ${selectedPaymentMethod === 'cod' ? 'selected' : ''}`}
+                          onClick={() => setSelectedPaymentMethod('cod')}
+                          id="payment-option-cod"
+                          role="radio"
+                          aria-checked={selectedPaymentMethod === 'cod'}
+                          tabIndex={0}
+                        >
+                          <div className="checkout-payment-option-header">
+                            <div className="checkout-payment-radio">
+                              {selectedPaymentMethod === 'cod' && <div className="checkout-payment-radio-dot" />}
+                            </div>
+                            <div className="checkout-payment-info">
+                              <div className="checkout-payment-title-row">
+                                <h3 className="checkout-payment-name">
+                                  <Banknote size={18} />
+                                  <span>Cash on Delivery (COD)</span>
+                                </h3>
+                                <span className="checkout-payment-badge cod">Pay at Doorstep</span>
+                              </div>
+                              <p className="checkout-payment-desc">
+                                Pay in cash to our courier partner when your package arrives at your doorstep.
+                              </p>
+                            </div>
+                          </div>
 
-                  {/* Action buttons: Back to Shipping & Pay and Place Order */}
-                  <div className="checkout-step2-actions">
-                    <button
-                      type="button"
-                      className="checkout-back-step-btn"
-                      onClick={() => setCurrentStep(1)}
-                      id="back-to-shipping-btn"
-                    >
-                      <ArrowLeft size={16} />
-                      <span>Back to Shipping</span>
-                    </button>
+                          {selectedPaymentMethod === 'cod' && (
+                            <div className="checkout-payment-expanded-box">
+                              <div className="checkout-cod-note">
+                                <Truck size={18} style={{ color: '#1E3A2B', flexShrink: 0, marginTop: '2px' }} />
+                                <div>
+                                  <strong>Cash on Delivery Available:</strong>
+                                  <br />
+                                  Please keep the exact cash amount of{' '}
+                                  <strong>{formatPrice(cartTotals.total || cartTotals.subtotal)}</strong> ready upon delivery
+                                  for a smooth, contactless handover.
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-                    <button
-                      type="button"
-                      className="checkout-pay-btn"
-                      id="pay-and-place-order-btn"
-                      disabled={isProcessingPayment}
-                      onClick={handlePayAndPlaceOrder}
-                    >
-                      {isProcessingPayment ? (
-                        <>
-                          <RefreshCw size={18} className="animate-spin" />
-                          <span>Securing Your Order...</span>
-                        </>
-                      ) : selectedPaymentMethod === 'cod' ? (
-                        <>
-                          <Lock size={18} />
-                          <span>
-                            Place Order (COD) • {formatPrice(cartTotals.total || cartTotals.subtotal)}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock size={18} />
-                          <span>
-                            Pay {formatPrice(cartTotals.total || cartTotals.subtotal)} and Place Order
-                          </span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </section>
+                      {/* Security reassurance banner */}
+                      <div className="checkout-security-notice">
+                        <ShieldCheck size={18} />
+                        <span>100% Secure Payment • 256-Bit SSL Encrypted • Real Ecwid Order Sync</span>
+                      </div>
+
+                      {/* Action buttons: Back to Shipping & Pay and Place Order */}
+                      <div className="checkout-step2-actions">
+                        <button
+                          type="button"
+                          className="checkout-back-step-btn"
+                          onClick={() => setCurrentStep(1)}
+                          id="back-to-shipping-btn"
+                        >
+                          <ArrowLeft size={16} />
+                          <span>Back to Shipping</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="checkout-pay-btn"
+                          id="pay-and-place-order-btn"
+                          disabled={isProcessingPayment}
+                          onClick={handlePayAndPlaceOrder}
+                        >
+                          {isProcessingPayment ? (
+                            <>
+                              <RefreshCw size={18} className="animate-spin" />
+                              <span>Securing Your Order...</span>
+                            </>
+                          ) : selectedPaymentMethod === 'cod' ? (
+                            <>
+                              <Lock size={18} />
+                              <span>
+                                Place Order (COD) • {formatPrice(cartTotals.total || cartTotals.subtotal)}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock size={18} />
+                              <span>
+                                Go to Payment • {formatPrice(cartTotals.total || cartTotals.subtotal)}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </section>
+                  </>
+                )}
               </div>
             )}
           </div>
