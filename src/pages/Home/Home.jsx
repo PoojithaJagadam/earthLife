@@ -19,6 +19,7 @@ import heroProductsMobileImg from '../../assets/hero_products_mobile.png';
 import catNeemImg from '../../assets/cat_neem.png';
 import catBambooImg from '../../assets/cat_bamboo.png';
 import catCoconutImg from '../../assets/cat_coconut.png';
+import sproutHandsImg from '../../assets/images/why_sprout_hands_1790188514691.jpg';
 import { useEcwidProducts } from '../../hooks/useEcwidProducts';
 import { useEcwidCategories } from '../../hooks/useEcwidCategories';
 import LoadingState from '../../components/LoadingState/LoadingState';
@@ -357,7 +358,15 @@ const Home = () => {
                   }}
                 >
                   <div className="cat-img-wrap">
-                    <img src={cat.image} alt={cat.title} className="cat-img-thumb" />
+                    <img 
+                      src={cat.image} 
+                      alt={cat.title} 
+                      className="cat-img-thumb" 
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = catNeemImg;
+                      }}
+                    />
                   </div>
                   <div className="cat-content">
                     <h3 className="cat-title">{cat.title}</h3>
@@ -447,10 +456,14 @@ const Home = () => {
                         {/* Product Image */}
                         <div className="product-img-holder">
                           <img 
-                            src={product.image} 
+                            src={product.image || catNeemImg} 
                             alt={product.name} 
                             className="product-card-img"
                             loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = catNeemImg;
+                            }}
                           />
                         </div>
 
@@ -569,8 +582,8 @@ const Home = () => {
         <Container className="cta-container-split">
           <div className="cta-image">
             <img 
-              src="https://images.unsplash.com/photo-1473663385731-50e50bb5bf69?auto=format&fit=crop&w=800&q=80" 
-              alt="Planting in hands" 
+              src={sproutHandsImg} 
+              alt="Hands holding a green sprout with soil - Good for you, good for the planet" 
               className="cta-img-hand" 
             />
             <div className="cta-image-text">

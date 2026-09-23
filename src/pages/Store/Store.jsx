@@ -5,6 +5,7 @@ import Container from '../../components/UI/Container/Container';
 import { useEcwidProducts } from '../../hooks/useEcwidProducts';
 import LoadingState from '../../components/LoadingState/LoadingState';
 import ErrorState from '../../components/ErrorState/ErrorState';
+import heroLeafImg from '../../assets/hero_leaf_transparent.png';
 import heroProductsImg from '../../assets/hero_products_mobile.png';
 import './Store.css';
 
@@ -124,6 +125,12 @@ const Store = () => {
     <div className="store-page">
       {/* Top Store Hero Banner */}
       <section className="store-hero-banner" aria-label="Store Introduction">
+        <img 
+          src={heroLeafImg} 
+          alt="" 
+          aria-hidden="true" 
+          className="store-hero-leaf-topleft" 
+        />
         <Container>
           <div className="store-hero-grid">
             {/* Left Content */}
