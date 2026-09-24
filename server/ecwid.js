@@ -160,7 +160,10 @@ function resolveCategoryId(cat) {
 export async function handleEcwidApi(req, res) {
   const urlObj = new URL(req.url, 'http://localhost');
   const pathname = urlObj.pathname;
-  const cleanPath = pathname.replace(/\/+$/, '') || '/';
+  const rawPath = pathname.replace(/\/+$/, '') || '/';
+  const normPath = rawPath.startsWith('/api/ecwid') 
+    ? (rawPath.replace(/^\/api\/ecwid/, '') || '/') 
+    : rawPath;
   const { storeId, token } = getEcwidConfig();
 
   // Set permissive CORS and JSON headers
@@ -171,6 +174,8 @@ export async function handleEcwidApi(req, res) {
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
+    console.log(`[API DEBUG] STATUS: 204`);
+    console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
     return res.end();
   }
 
@@ -179,7 +184,7 @@ export async function handleEcwidApi(req, res) {
 
   try {
     // 1. GET /api/ecwid/products
-    if (cleanPath === '/api/ecwid/products' && isGetOrHead) {
+    if ((normPath === '/products' || rawPath === '/api/ecwid/products') && isGetOrHead) {
       const keyword = urlObj.searchParams.get('keyword');
       const category = urlObj.searchParams.get('category');
       const limit = urlObj.searchParams.get('limit') || '100';
@@ -202,17 +207,22 @@ export async function handleEcwidApi(req, res) {
       if (!response.ok) {
         const errorText = await response.text();
         res.statusCode = response.status;
-        return res.end(JSON.stringify({ 
+        console.log(`[API DEBUG] STATUS: ${response.status}`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ 
           error: `Ecwid API error: ${response.statusText}`, 
           details: errorText 
         }));
+        return true;
       }
 
       const data = await response.json();
       const normalizedItems = (data.items || []).map(p => normalizeProduct(p));
 
       res.statusCode = 200;
-      return res.end(JSON.stringify({
+      console.log(`[API DEBUG] STATUS: 200`);
+      console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+      res.end(JSON.stringify({
         storeId,
         source: 'ecwid_live_api',
         total: data.total,
@@ -222,15 +232,19 @@ export async function handleEcwidApi(req, res) {
         items: normalizedItems,
         rawItems: data.items
       }));
+      return true;
     }
 
     // 2. GET /api/ecwid/products/:id
-    if (cleanPath.startsWith('/api/ecwid/products/') && isGetOrHead) {
-      const idOrSlug = decodeURIComponent(cleanPath.replace('/api/ecwid/products/', '')).trim();
+    if ((normPath.startsWith('/products/') || rawPath.startsWith('/api/ecwid/products/')) && isGetOrHead) {
+      const idOrSlug = decodeURIComponent(normPath.replace('/products/', '').replace('/api/ecwid/products/', '')).trim();
 
       if (!idOrSlug) {
         res.statusCode = 400;
-        return res.end(JSON.stringify({ error: 'Product ID or slug is required.' }));
+        console.log(`[API DEBUG] STATUS: 400`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Product ID or slug is required.' }));
+        return true;
       }
 
       const isNumeric = /^\d+$/.test(idOrSlug);
@@ -245,12 +259,15 @@ export async function handleEcwidApi(req, res) {
         if (singleRes.ok) {
           const raw = await singleRes.json();
           res.statusCode = 200;
-          return res.end(JSON.stringify({
+          console.log(`[API DEBUG] STATUS: 200`);
+          console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+          res.end(JSON.stringify({
             storeId,
             source: 'ecwid_live_api',
             product: normalizeProduct(raw),
             raw
           }));
+          return true;
         }
       }
 
@@ -262,7 +279,10 @@ export async function handleEcwidApi(req, res) {
 
       if (!searchRes.ok) {
         res.statusCode = 404;
-        return res.end(JSON.stringify({ error: 'Product not found.' }));
+        console.log(`[API DEBUG] STATUS: 404`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Product not found.' }));
+        return true;
       }
 
       const listData = await searchRes.json();
@@ -277,7 +297,10 @@ export async function handleEcwidApi(req, res) {
 
       if (!match) {
         res.statusCode = 404;
-        return res.end(JSON.stringify({ error: 'Product not found.' }));
+        console.log(`[API DEBUG] STATUS: 404`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Product not found.' }));
+        return true;
       }
 
       // Fetch full individual product for complete gallery and options
@@ -287,16 +310,19 @@ export async function handleEcwidApi(req, res) {
 
       const raw = fullRes.ok ? await fullRes.json() : match;
       res.statusCode = 200;
-      return res.end(JSON.stringify({
+      console.log(`[API DEBUG] STATUS: 200`);
+      console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+      res.end(JSON.stringify({
         storeId,
         source: 'ecwid_live_api',
         product: normalizeProduct(raw),
         raw
       }));
+      return true;
     }
 
     // 3. GET /api/ecwid/categories
-    if (cleanPath === '/api/ecwid/categories' && isGetOrHead) {
+    if ((normPath === '/categories' || rawPath === '/api/ecwid/categories') && isGetOrHead) {
       const catUrl = `https://app.ecwid.com/api/v3/${storeId}/categories?token=${token}`;
       const catRes = await fetchWithRetry(catUrl, {
         headers: { 'Accept': 'application/json' }
@@ -305,21 +331,27 @@ export async function handleEcwidApi(req, res) {
       if (!catRes.ok) {
         const errText = await catRes.text();
         res.statusCode = catRes.status;
-        return res.end(JSON.stringify({ error: 'Failed to fetch categories', details: errText }));
+        console.log(`[API DEBUG] STATUS: ${catRes.status}`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Failed to fetch categories', details: errText }));
+        return true;
       }
 
       const data = await catRes.json();
       res.statusCode = 200;
-      return res.end(JSON.stringify({
+      console.log(`[API DEBUG] STATUS: 200`);
+      console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+      res.end(JSON.stringify({
         storeId,
         source: 'ecwid_live_api',
         total: data.total,
         items: data.items || []
       }));
+      return true;
     }
 
     // 4. POST /api/ecwid/cart/calculate (Authoritative Ecwid Cart Calculation)
-    if (cleanPath === '/api/ecwid/cart/calculate' && (isPost || isGetOrHead)) {
+    if ((normPath === '/cart/calculate' || rawPath === '/api/ecwid/cart/calculate') && (isPost || isGetOrHead)) {
       let bodyData = {};
       if (isPost) {
         if (req.body && typeof req.body === 'object') {
@@ -538,18 +570,21 @@ export async function handleEcwidApi(req, res) {
     }
 
     // 5. GET /api/ecwid/customer/addresses - Check if customer address storage is supported via Ecwid Secret Token
-    if (cleanPath === '/api/ecwid/customer/addresses' && isGetOrHead) {
+    if ((normPath === '/customer/addresses' || rawPath === '/api/ecwid/customer/addresses') && isGetOrHead) {
       const email = urlObj.searchParams.get('email');
       const hasSecretToken = Boolean(process.env.ECWID_SECRET_TOKEN);
 
       if (!hasSecretToken) {
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           supported: false,
           requiresSecretToken: true,
           message: 'Ecwid Secret Token (ECWID_SECRET_TOKEN) with read_customers/update_customers scope is required to query or persist customer addresses directly to the remote Ecwid Customer database. Using customer checkout session storage.',
           addresses: []
         }));
+        return true;
       }
 
       // If secret token is present, query Ecwid customers API
@@ -564,11 +599,14 @@ export async function handleEcwidApi(req, res) {
 
         if (!customerRes.ok) {
           res.statusCode = 200;
-          return res.end(JSON.stringify({
+          console.log(`[API DEBUG] STATUS: 200`);
+          console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+          res.end(JSON.stringify({
             supported: false,
             error: customerRes.statusText,
             addresses: []
           }));
+          return true;
         }
 
         const customerData = await customerRes.json();
@@ -584,22 +622,28 @@ export async function handleEcwidApi(req, res) {
         }
 
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           supported: true,
           addresses
         }));
+        return true;
       } catch (err) {
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           supported: false,
           error: err.message,
           addresses: []
         }));
+        return true;
       }
     }
 
     // 5b. POST /api/ecwid/customer/update - Real Ecwid Customer Profile Update
-    if (cleanPath === '/api/ecwid/customer/update' && isPost) {
+    if ((normPath === '/customer/update' || rawPath === '/api/ecwid/customer/update') && isPost) {
       let bodyData = {};
       if (req.body && typeof req.body === 'object') {
         bodyData = req.body;
@@ -623,11 +667,14 @@ export async function handleEcwidApi(req, res) {
 
       if (!hasSecretToken) {
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           success: false,
           requiresStorefrontAction: true,
           message: 'Direct REST API customer updates require an Ecwid Secret Token (ECWID_SECRET_TOKEN) with update_customers scope. Please use the official Ecwid Account Settings to update and save your profile.'
         }));
+        return true;
       }
 
       try {
@@ -648,10 +695,13 @@ export async function handleEcwidApi(req, res) {
 
         if (!targetId) {
           res.statusCode = 400;
-          return res.end(JSON.stringify({
+          console.log(`[API DEBUG] STATUS: 400`);
+          console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+          res.end(JSON.stringify({
             success: false,
             message: 'Customer ID or valid customer email is required.'
           }));
+          return true;
         }
 
         const updatePayload = {};
@@ -682,32 +732,41 @@ export async function handleEcwidApi(req, res) {
         if (!updateRes.ok) {
           const errText = await updateRes.text();
           res.statusCode = updateRes.status;
-          return res.end(JSON.stringify({
+          console.log(`[API DEBUG] STATUS: ${updateRes.status}`);
+          console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+          res.end(JSON.stringify({
             success: false,
             error: 'Failed to update customer in Ecwid',
             details: errText
           }));
+          return true;
         }
 
         const result = await updateRes.json();
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           success: true,
           message: 'Customer profile updated successfully in Ecwid.',
           customer: result
         }));
+        return true;
       } catch (err) {
         console.error('Customer update error:', err);
         res.statusCode = 500;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 500`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           success: false,
           error: err.message
         }));
+        return true;
       }
     }
 
     // 6. GET /api/ecwid/payment-methods - Retrieve store-configured payment options from Ecwid
-    if (cleanPath === '/api/ecwid/payment-methods' && isGetOrHead) {
+    if ((normPath === '/payment-methods' || rawPath === '/api/ecwid/payment-methods') && isGetOrHead) {
       try {
         const paymentUrl = `https://app.ecwid.com/api/v3/${storeId}/profile/paymentOptions?token=${token}`;
         const paymentRes = await fetchWithRetry(paymentUrl, {
@@ -717,15 +776,20 @@ export async function handleEcwidApi(req, res) {
         if (paymentRes.ok) {
           const options = await paymentRes.json();
           res.statusCode = 200;
-          return res.end(JSON.stringify({
+          console.log(`[API DEBUG] STATUS: 200`);
+          console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+          res.end(JSON.stringify({
             storeId,
             source: 'ecwid_live_api',
             paymentMethods: Array.isArray(options) ? options : []
           }));
+          return true;
         }
 
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           storeId,
           source: 'ecwid_configured_methods',
           paymentMethods: [
@@ -749,9 +813,12 @@ export async function handleEcwidApi(req, res) {
             }
           ]
         }));
+        return true;
       } catch {
         res.statusCode = 200;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 200`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           storeId,
           source: 'ecwid_configured_fallback',
           paymentMethods: [
@@ -771,11 +838,12 @@ export async function handleEcwidApi(req, res) {
             }
           ]
         }));
+        return true;
       }
     }
 
     // 7. POST /api/ecwid/order/create - Authoritative Ecwid Order Creation
-    if (cleanPath === '/api/ecwid/order/create' && isPost) {
+    if ((normPath === '/order/create' || rawPath === '/api/ecwid/order/create') && isPost) {
       let bodyData = {};
       if (req.body && typeof req.body === 'object') {
         bodyData = req.body;
@@ -798,25 +866,37 @@ export async function handleEcwidApi(req, res) {
 
       if (!items || !Array.isArray(items) || items.length === 0) {
         res.statusCode = 400;
-        return res.end(JSON.stringify({ error: 'Cart items are required to place an order.' }));
+        console.log(`[API DEBUG] STATUS: 400`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Cart items are required to place an order.' }));
+        return true;
       }
 
       if (!customer || !customer.email) {
         res.statusCode = 400;
-        return res.end(JSON.stringify({ error: 'Customer email is required.' }));
+        console.log(`[API DEBUG] STATUS: 400`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Customer email is required.' }));
+        return true;
       }
 
       if (!shippingAddress || !shippingAddress.name) {
         res.statusCode = 400;
-        return res.end(JSON.stringify({ error: 'Shipping address is required.' }));
+        console.log(`[API DEBUG] STATUS: 400`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Shipping address is required.' }));
+        return true;
       }
 
       const isCOD = paymentMethod === 'cod' || paymentMethod === 'Pay by cash';
       if (!isCOD) {
         res.statusCode = 400;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: 400`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           error: 'Online payment orders must proceed through the Ecwid native checkout session to verify payment before order creation.'
         }));
+        return true;
       }
 
       const ecwidPaymentTitle = 'Pay by cash';
@@ -896,10 +976,13 @@ export async function handleEcwidApi(req, res) {
         const errText = await orderRes.text();
         console.error('Failed to create Ecwid order:', errText);
         res.statusCode = orderRes.status;
-        return res.end(JSON.stringify({
+        console.log(`[API DEBUG] STATUS: ${orderRes.status}`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({
           error: 'Failed to create order in Ecwid',
           details: errText
         }));
+        return true;
       }
 
       let orderResult = null;
@@ -914,11 +997,16 @@ export async function handleEcwidApi(req, res) {
 
       if (!orderResult) {
         res.statusCode = 500;
-        return res.end(JSON.stringify({ error: 'Failed to create order in Ecwid', details: 'Empty or invalid response from Ecwid orders API.' }));
+        console.log(`[API DEBUG] STATUS: 500`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Failed to create order in Ecwid', details: 'Empty or invalid response from Ecwid orders API.' }));
+        return true;
       }
 
       res.statusCode = 200;
-      return res.end(JSON.stringify({
+      console.log(`[API DEBUG] STATUS: 200`);
+      console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+      res.end(JSON.stringify({
         success: true,
         orderId: orderResult.orderId,
         id: orderResult.id,
@@ -926,12 +1014,20 @@ export async function handleEcwidApi(req, res) {
         paymentMethod: ecwidPaymentTitle,
         paymentStatus: ecwidPaymentStatus
       }));
+      return true;
     }
 
-    return null; // Not an Ecwid API route
+    res.statusCode = 404;
+    console.log(`[API DEBUG] STATUS: 404`);
+    console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+    res.end(JSON.stringify({ error: 'Ecwid endpoint not found', path: normPath }));
+    return true;
   } catch (err) {
     console.error('Ecwid API proxy error:', err);
     res.statusCode = 500;
-    return res.end(JSON.stringify({ error: 'Internal server error while fetching Ecwid data.' }));
+    console.log(`[API DEBUG] STATUS: 500`);
+    console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+    res.end(JSON.stringify({ error: 'Internal server error while fetching Ecwid data.' }));
+    return true;
   }
 }

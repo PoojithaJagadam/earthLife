@@ -201,12 +201,19 @@ export async function fetchEcwidProducts(options = {}) {
       const response = await fetch(`${endpoint}${queryString}`);
 
       if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data.items)) {
-          if (!options.category && !options.keyword && !options.offset) {
-            setSessionCache(CACHE_KEY_PRODUCTS, data);
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const data = await response.json();
+          if (Array.isArray(data.items)) {
+            if (!options.category && !options.keyword && !options.offset) {
+              setSessionCache(CACHE_KEY_PRODUCTS, data);
+            }
+            return data;
           }
-          return data;
+        } else {
+          const text = await response.text();
+          console.error("Proxy fetch returned non-JSON:", text.substring(0, 100));
+          throw new Error("API proxy returned invalid JSON format.");
         }
       }
     } catch (proxyError) {
@@ -372,10 +379,17 @@ export async function fetchEcwidCategories() {
       const response = await fetch(endpoint);
 
       if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data.items)) {
-          setSessionCache(CACHE_KEY_CATEGORIES, data);
-          return data;
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const data = await response.json();
+          if (Array.isArray(data.items)) {
+            setSessionCache(CACHE_KEY_CATEGORIES, data);
+            return data;
+          }
+        } else {
+          const text = await response.text();
+          console.error("Proxy categories fetch returned non-JSON:", text.substring(0, 100));
+          throw new Error("API proxy categories returned invalid JSON format.");
         }
       }
     } catch (proxyError) {
