@@ -23,6 +23,7 @@ const Cart = () => {
     cartCount,
     cartTotals,
     loadingTotals,
+    appliedCoupon,
     updateQuantity,
     removeFromCart,
     clearCart

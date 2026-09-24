@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   User, 
   Home, 
@@ -14,9 +14,12 @@ import {
   Leaf, 
   ExternalLink,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ShoppingCart,
+  ArrowRight
 } from 'lucide-react';
 import { useEcwidAccount } from '../../hooks/useEcwidAccount';
+import { useCart } from '../../context/CartContext';
 import EcwidStore from '../../ecwid/storefront/EcwidStore';
 import './Account.css';
 
@@ -26,9 +29,21 @@ const Account = () => {
     isLoggedIn, 
     openPage, 
     logout, 
-    refresh,
+    refresh, 
     updateProfile 
   } = useEcwidAccount();
+
+  const { cartCount } = useCart();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const isFromCheckout = searchParams.get('redirect') === 'checkout';
+
+  // Automatically return to Ecwid Shopping Cart on checkout once logged in
+  useEffect(() => {
+    if (isLoggedIn && isFromCheckout) {
+      navigate('/checkout?step=ecwid-cart', { replace: true });
+    }
+  }, [isLoggedIn, isFromCheckout, navigate]);
 
   // Authenticated view state: 'details' | 'addresses' | 'orders' | 'overview'
   const [activeTab, setActiveTab] = useState(() => {
@@ -349,6 +364,52 @@ const Account = () => {
                   Sign in with your email to access your EarthLife Co. orders, saved addresses, and profile. Ecwid generates a secure one-time access code sent to your inbox.
                 </p>
               </div>
+
+              {isFromCheckout && (
+                <div style={{
+                  backgroundColor: '#EAF0EC',
+                  border: '1px solid #C4D9CC',
+                  borderRadius: '12px',
+                  padding: '1rem 1.25rem',
+                  marginBottom: '1.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <ShoppingCart size={22} style={{ color: '#1E3A2B', flexShrink: 0 }} />
+                    <div>
+                      <strong style={{ display: 'block', color: '#1E3A2B', fontSize: '0.96rem' }}>
+                        Checkout in Progress ({cartCount} {cartCount === 1 ? 'item' : 'items'})
+                      </strong>
+                      <span style={{ fontSize: '0.86rem', color: '#4B6354' }}>
+                        Sign in with your email below. Once verified with your access code, your Native Ecwid Shopping Cart will open automatically.
+                      </span>
+                    </div>
+                  </div>
+                  <Link
+                    to="/checkout"
+                    style={{
+                      fontSize: '0.85rem',
+                      color: '#1E3A2B',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                      padding: '0.45rem 0.85rem',
+                      borderRadius: '6px',
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #C4D9CC',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem'
+                    }}
+                  >
+                    <span>Return to Shipping</span>
+                    <ArrowRight size={14} />
+                  </Link>
+                </div>
+              )}
 
               {/* Native Ecwid Sign-in Component: Handles CAPTCHA/Security, sends real access code/link */}
               <div className="earthlife-native-auth-wrapper">

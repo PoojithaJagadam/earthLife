@@ -384,22 +384,36 @@ export async function clearEcwidCart() {
  * Synchronize all current items directly to the Ecwid Storefront Cart session
  */
 export async function syncCartToEcwidStorefront(items) {
-  await ensureEcwidLoaded();
-  if (typeof window === 'undefined' || !window.Ecwid || !window.Ecwid.Cart) return;
+  if (typeof window === 'undefined') return;
 
   return new Promise((resolve) => {
+    // Safety timeout: Never let storefront sync block the checkout flow for more than 500ms
+    const safetyTimer = setTimeout(() => {
+      resolve();
+    }, 500);
+
+    const safeDone = () => {
+      clearTimeout(safetyTimer);
+      resolve();
+    };
+
     try {
+      if (!window.Ecwid || !window.Ecwid.Cart) {
+        safeDone();
+        return;
+      }
+
       if (typeof window.Ecwid.Cart.clear === 'function') {
         window.Ecwid.Cart.clear(() => {
           if (!items || items.length === 0) {
-            resolve();
+            safeDone();
             return;
           }
 
           let remaining = items.length;
           const onDone = () => {
             remaining--;
-            if (remaining <= 0) resolve();
+            if (remaining <= 0) safeDone();
           };
 
           items.forEach((it) => {
@@ -416,11 +430,11 @@ export async function syncCartToEcwidStorefront(items) {
           });
         });
       } else {
-        resolve();
+        safeDone();
       }
     } catch (e) {
       console.warn('Failed to sync items to Ecwid storefront cart:', e);
-      resolve();
+      safeDone();
     }
   });
 }
