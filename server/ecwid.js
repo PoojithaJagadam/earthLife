@@ -1017,6 +1017,48 @@ export async function handleEcwidApi(req, res) {
       return true;
     }
 
+    // 8. GET /api/ecwid/orders - Fetch orders for a customer by email
+    if ((normPath === '/orders' || rawPath === '/api/ecwid/orders') && isGetOrHead) {
+      const email = urlObj.searchParams.get('email');
+      if (!email) {
+        res.statusCode = 400;
+        console.log(`[API DEBUG] STATUS: 400`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Customer email is required.' }));
+        return true;
+      }
+
+      const ordersUrl = new URL(`https://app.ecwid.com/api/v3/${storeId}/orders`);
+      ordersUrl.searchParams.set('token', token);
+      ordersUrl.searchParams.set('email', email);
+      ordersUrl.searchParams.set('limit', '100');
+
+      const ordersRes = await fetchWithRetry(ordersUrl.toString(), {
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (!ordersRes.ok) {
+        const errText = await ordersRes.text();
+        res.statusCode = ordersRes.status;
+        console.log(`[API DEBUG] STATUS: ${ordersRes.status}`);
+        console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+        res.end(JSON.stringify({ error: 'Failed to fetch orders', details: errText }));
+        return true;
+      }
+
+      const data = await ordersRes.json();
+      res.statusCode = 200;
+      console.log(`[API DEBUG] STATUS: 200`);
+      console.log(`[API DEBUG] CONTENT-TYPE: application/json`);
+      res.end(JSON.stringify({
+        storeId,
+        source: 'ecwid_live_api',
+        total: data.total,
+        items: data.items || []
+      }));
+      return true;
+    }
+
     res.statusCode = 404;
     console.log(`[API DEBUG] STATUS: 404`);
     console.log(`[API DEBUG] CONTENT-TYPE: application/json`);

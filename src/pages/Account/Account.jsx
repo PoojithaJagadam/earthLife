@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useEcwidAccount } from '../../hooks/useEcwidAccount';
 import EcwidStore from '../../ecwid/storefront/EcwidStore';
-import productBrushes from '../../assets/product_brushes_clean.png';
 import './Account.css';
 
 const Account = () => {
@@ -80,6 +79,194 @@ const Account = () => {
       openPage('settings');
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // MY ORDERS: View Details / Hide Details Toggle & Buy Again Handler
+  // ---------------------------------------------------------------------------
+  const [expandedEcwidOrderId, setExpandedEcwidOrderId] = useState(null);
+  const [reorderingEcwidOrderId, setReorderingEcwidOrderId] = useState(null);
+
+  useEffect(() => {
+    if (activeTab !== 'orders') return;
+
+    let isMounted = true;
+    const wrapper = document.querySelector('.ecwid-orders-wrapper');
+    if (!wrapper) return;
+
+    const processOrderCards = () => {
+      if (!isMounted) return;
+
+      // Find order cards rendered by Ecwid
+      const cards = wrapper.querySelectorAll(
+        '.ec-cart__order, .ec-customer-portal-order, .ec-orders-list__item, [data-order-id], .ec-confirmation__step'
+      );
+
+      cards.forEach((card, idx) => {
+        // Extract stable order ID
+        const orderId =
+          card.getAttribute('data-order-id') ||
+          card.querySelector('.ec-confirmation__number')?.textContent?.replace(/[^0-9]/g, '') ||
+          card.id?.replace(/[^0-9]/g, '') ||
+          String(idx + 1);
+
+        card.setAttribute('data-earthlife-order-id', orderId);
+
+        // FIX 1: Manage Expansion State
+        // Only the selected order should expand; all other orders remain collapsed
+        const isExpanded = expandedEcwidOrderId === orderId;
+        if (isExpanded) {
+          card.classList.add('earthlife-order--expanded');
+          card.classList.remove('earthlife-order--collapsed');
+        } else {
+          card.classList.add('earthlife-order--collapsed');
+          card.classList.remove('earthlife-order--expanded');
+        }
+
+        // Ensure action toolbar exists on the card
+        let actionBar = card.querySelector('.earthlife-order-actions-bar');
+        if (!actionBar) {
+          actionBar = document.createElement('div');
+          actionBar.className = 'earthlife-order-actions-bar';
+
+          // FIX 1: View Details / Hide Details Toggle Button
+          const toggleBtn = document.createElement('button');
+          toggleBtn.type = 'button';
+          toggleBtn.className = 'earthlife-order-btn earthlife-order-btn--toggle';
+          toggleBtn.setAttribute('data-action', 'toggle-details');
+          actionBar.appendChild(toggleBtn);
+
+          // FIX 2: Buy Again Button
+          const buyAgainBtn = document.createElement('button');
+          buyAgainBtn.type = 'button';
+          buyAgainBtn.className = 'earthlife-order-btn earthlife-order-btn--buy-again';
+          buyAgainBtn.setAttribute('data-action', 'buy-again');
+          actionBar.appendChild(buyAgainBtn);
+
+          // Append action bar to order card
+          const body = card.querySelector('.ec-confirmation__body, .ec-customer-portal-order__content') || card;
+          body.appendChild(actionBar);
+        }
+
+        // Update Toggle Button label and click handler
+        const toggleBtn = actionBar.querySelector('[data-action="toggle-details"]');
+        if (toggleBtn) {
+          toggleBtn.innerHTML = `<span>${isExpanded ? 'Hide Details' : 'View Details'}</span>`;
+          toggleBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (expandedEcwidOrderId === orderId) {
+              // Clicked "Hide Details" -> collapse this order back to compact state
+              setExpandedEcwidOrderId(null);
+            } else {
+              // Clicked "View Details" -> expand this order, collapsing any other order
+              setExpandedEcwidOrderId(orderId);
+
+              // If Ecwid's native expand element hasn't loaded details yet, trigger it
+              const nativeExpandBtn = card.querySelector('.ec-customer-portal-order__toggle, a.ec-link[role="button"], .ec-link');
+              if (nativeExpandBtn && !card.querySelector('.ec-confirmation__section')) {
+                nativeExpandBtn.click();
+              }
+            }
+          };
+        }
+
+        // Update Buy Again Button and click handler
+        const buyAgainBtn = actionBar.querySelector('[data-action="buy-again"]');
+        if (buyAgainBtn) {
+          const isReordering = reorderingEcwidOrderId === orderId;
+          buyAgainBtn.innerHTML = `<span>${isReordering ? 'Repeating Order...' : 'Buy again'}</span>`;
+          buyAgainBtn.disabled = isReordering;
+
+          buyAgainBtn.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setReorderingEcwidOrderId(orderId);
+
+            try {
+              let dispatched = false;
+
+              // 1. First try native Ecwid repeat-order page
+              if (typeof window !== 'undefined' && window.Ecwid && typeof window.Ecwid.openPage === 'function') {
+                try {
+                  window.Ecwid.openPage('repeat-order', { id: Number(orderId), type: 'order' });
+                  dispatched = true;
+                } catch (openErr) {
+                  console.warn('Ecwid openPage repeat-order fallback:', openErr);
+                }
+              }
+
+              // 2. Try hash router
+              if (!dispatched) {
+                try {
+                  window.location.hash = `!/repeat-order?id=${orderId}&type=order`;
+                  dispatched = true;
+                } catch (hashErr) {
+                  console.warn('Hash router error:', hashErr);
+                }
+              }
+
+              // 3. Fallback: Parse order items from DOM and add to Ecwid Cart
+              const itemRows = card.querySelectorAll('.ec-cart-item-sum, .ec-customer-portal-order-item, .ec-cart-items-wrapper .ec-cart-item');
+              if (itemRows && itemRows.length > 0) {
+                for (const row of itemRows) {
+                  const link = row.querySelector('a[href*="-p"]');
+                  const idMatch = link?.href?.match(/-p(\d+)/);
+                  const prodId = idMatch ? Number(idMatch[1]) : null;
+                  if (prodId && window.Ecwid?.Cart && typeof window.Ecwid.Cart.addProduct === 'function') {
+                    window.Ecwid.Cart.addProduct({ id: prodId, quantity: 1 });
+                  }
+                }
+              }
+
+              // Direct into Ecwid checkout/cart flow (never redirect to product page)
+              setTimeout(() => {
+                if (typeof window !== 'undefined' && window.Ecwid && typeof window.Ecwid.openPage === 'function') {
+                  window.Ecwid.openPage('cart');
+                } else {
+                  window.location.href = '/cart';
+                }
+                setReorderingEcwidOrderId(null);
+              }, 600);
+            } catch (err) {
+              console.error('Error during Buy Again:', err);
+              setReorderingEcwidOrderId(null);
+            }
+          };
+        }
+
+        // Intercept native Ecwid toggle if present to keep in sync
+        const nativeToggle = card.querySelector('.ec-customer-portal-order__toggle');
+        if (nativeToggle && !nativeToggle.getAttribute('data-earthlife-sync')) {
+          nativeToggle.setAttribute('data-earthlife-sync', 'true');
+          nativeToggle.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (expandedEcwidOrderId === orderId) {
+              ev.preventDefault();
+              setExpandedEcwidOrderId(null);
+            } else {
+              setExpandedEcwidOrderId(orderId);
+            }
+          });
+        }
+      });
+    };
+
+    const observer = new MutationObserver(() => {
+      processOrderCards();
+    });
+
+    observer.observe(wrapper, { childList: true, subtree: true });
+    processOrderCards();
+
+    const interval = setInterval(processOrderCards, 600);
+
+    return () => {
+      isMounted = false;
+      observer.disconnect();
+      clearInterval(interval);
+    };
+  }, [activeTab, expandedEcwidOrderId, reorderingEcwidOrderId]);
 
   // Handle Profile Update Changes
   const handleProfileSave = async (e) => {
@@ -154,7 +341,7 @@ const Account = () => {
           </div>
 
           <div className="account-auth-container">
-            {/* Left Column: EarthLife Header + Real Ecwid Native Sign-In Component */}
+            {/* Full Width: EarthLife Header + Real Ecwid Native Sign-In Component */}
             <div className="auth-form-column">
               <div className="auth-header">
                 <h1 className="auth-title">Welcome Back</h1>
@@ -170,45 +357,6 @@ const Account = () => {
 
               <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: '#6B7280' }}>
                 Protected by Ecwid secure customer session &amp; Cloudflare security verification.
-              </div>
-            </div>
-
-            {/* Right Column: Hero Banner matching official design */}
-            <div className="auth-banner-column">
-              <div className="auth-banner-script">
-                <span>Small Choices</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  Big Change <Leaf size={28} className="leaf-icon" />
-                </span>
-              </div>
-
-              <div className="auth-banner-image-wrapper">
-                <img 
-                  src={productBrushes} 
-                  alt="Eco-friendly bamboo toothbrushes" 
-                  className="auth-banner-img"
-                />
-              </div>
-
-              <div className="auth-banner-features">
-                <div className="auth-feature-item">
-                  <div className="auth-feature-icon">
-                    <Leaf size={18} />
-                  </div>
-                  <span className="auth-feature-text">100% Eco-Friendly</span>
-                </div>
-                <div className="auth-feature-item">
-                  <div className="auth-feature-icon">
-                    <CheckCircle2 size={18} />
-                  </div>
-                  <span className="auth-feature-text">Better for Your Family</span>
-                </div>
-                <div className="auth-feature-item">
-                  <div className="auth-feature-icon">
-                    <Leaf size={18} />
-                  </div>
-                  <span className="auth-feature-text">A Greener Tomorrow</span>
-                </div>
               </div>
             </div>
           </div>
@@ -286,21 +434,6 @@ const Account = () => {
                 <span>Logout</span>
               </button>
             </nav>
-
-            {/* Promo Card: "Save Extra with Every Choice" */}
-            <div className="account-sidebar-promo">
-              <div className="promo-badge">
-                <span>SAVE 10%</span>
-              </div>
-              <h4 className="promo-title">Save Extra with Every Choice</h4>
-              <p className="promo-desc">
-                Subscribe to your everyday essentials and enjoy an extra 10% off + free delivery on every order.
-              </p>
-              <Link to="/store" className="promo-action-btn">
-                <span>Shop Subscriptions</span>
-                <span className="promo-arrow">→</span>
-              </Link>
-            </div>
           </aside>
 
           {/* Right Main Content Card */}
@@ -553,11 +686,7 @@ const Account = () => {
                       Manage your delivery addresses stored in your Ecwid account.
                     </p>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.75rem' }}>
-                    <div className="account-card-script-accent" style={{ fontSize: '1.75rem' }}>
-                      <span>Small Choices Big Change</span>
-                      <Leaf size={20} style={{ color: '#2D5540' }} />
-                    </div>
+                  <div>
                     <button
                       type="button"
                       className="add-address-top-btn"
@@ -677,10 +806,6 @@ const Account = () => {
                     <p className="account-card-subtitle">
                       View your real Ecwid order history, delivery tracking, and tax invoices.
                     </p>
-                  </div>
-                  <div className="account-card-script-accent">
-                    <span>Small Choices Big Change</span>
-                    <Leaf size={24} style={{ color: '#2D5540' }} />
                   </div>
                 </div>
 
